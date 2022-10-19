@@ -136,10 +136,10 @@ class GeoGNNModel(Module):
         edge_repr_feat = edge_hidden_list[-1]
         pe_repr_feat = pe_hidden_list[-1]
 
-        node_repr_feat = self.transformer_block(node_repr_feat, pe_repr_feat)
+        node_repr_feat = self.transformer_block(node_repr_feat, pe_repr_feat, bond_edge_index)
         pe_repr_feat = self.pe_out(pe_repr_feat)
 
-        node_feat = node_repr_feat
+        node_feat = node_repr_feat.to(self.device)
         # print(node_feat)
         # print(pe_repr_feat)
 

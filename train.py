@@ -163,21 +163,21 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
 
         print('Training:')
         train_loss = train_one_epoch(
-            model=model,
-            writer=writer,
-            data=(graph_list_train, y_list_train),
-            epoch=epoch,
-            batch_size=batch_size,
-            args=(scaler, optimizer, lr_scheduler),
+            model,
+            writer,
+            (graph_list_train, y_list_train),
+            epoch,
+            batch_size,
+            scaler, optimizer, lr_scheduler,
         )
         writer.add_scalar('training_loss', train_loss, epoch)
         print('Training complete\n')
 
         print('Validating:')
         val_loss = val_one_epoch(
-            model=model,
-            data=(graph_list_val, y_list_val),
-            batch_size=batch_size,
+            model,
+            (graph_list_val, y_list_val),
+            batch_size,
         )
         writer.add_scalar('validate_loss', val_loss, epoch)
         print('Validating complete\n')

@@ -5,3 +5,4 @@ raw_data
 wandb
 runs
 __pycache__
+**/*.ipynb
