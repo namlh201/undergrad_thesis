@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 
 from tqdm import tqdm
 
-from .defunct import PairData
+# from .defunct import PairData
 from .module import RBF
-from .utils import GraphUtils, VALUES
+from .utils.graph_utils import GraphUtils
+from .utils.values import VALUES
 
 class GraphPairEmbeddingBatch(nn.Module):
     def __init__(self, atom_feat_names: list[str], bond_feat_names: list[str],
@@ -26,7 +29,7 @@ class GraphPairEmbeddingBatch(nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, atom_bond_graph_list, bond_angle_graph_list) -> PairData:
+    def forward(self, atom_bond_graph_list, bond_angle_graph_list):# -> PairData:
         edge_index_ab = []
         x_ab = []
         edge_attr_ab = []
@@ -162,7 +165,7 @@ class GraphPairEmbedding(nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, atom_bond_graph, bond_angle_graph) -> PairData:
+    def forward(self, atom_bond_graph, bond_angle_graph):# -> PairData:
         self.atom_bond_adj_mat = atom_bond_graph.adj_mat
         self.bond_angle_adj_mat = bond_angle_graph.adj_mat
 
@@ -177,9 +180,9 @@ class GraphPairEmbedding(nn.Module):
         bond_node_features, angle_edge_features, angle_edge_index = \
             self.bond_angle_graph_embedding(bond_angle_graph)
 
-        return PairData(edge_index_ab=bond_edge_index,  x_ab=atom_node_features, edge_attr_ab=bond_edge_features,  edge_map_ab=self.atom_bond_idx_map,
-                        edge_index_ba=angle_edge_index, x_ba=bond_node_features, edge_attr_ba=angle_edge_features, edge_map_ba=self.bond_angle_idx_map,
-                        y=self.y).to(self.device)
+        return None #PairData(edge_index_ab=bond_edge_index,  x_ab=atom_node_features, edge_attr_ab=bond_edge_features,  edge_map_ab=self.atom_bond_idx_map,
+                        # edge_index_ba=angle_edge_index, x_ba=bond_node_features, edge_attr_ba=angle_edge_features, edge_map_ba=self.bond_angle_idx_map,
+                        # y=self.y).to(self.device)
 
 class AtomBondGraphEmbedding(nn.Module):
     def __init__(self, atom_feat_names: list[str], bond_feat_names: list[str],

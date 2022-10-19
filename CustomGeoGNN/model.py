@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # from typing import Optional
 import torch
 from torch import Tensor
@@ -9,7 +11,7 @@ from .embed import GraphPairEmbeddingBatch
 from .module.block import GeoGNNBlock, TransformerBlock
 from .module.loss_fn import LaplacianEigenvectorLoss
 from .module.utils import UnitNorm
-from .utils import GraphUtils
+from .utils.graph_utils import GraphUtils
 
 class GeoGNNModel(Module):
     def __init__(self, config={}):

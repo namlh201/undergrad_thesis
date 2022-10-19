@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from rdkit.Chem.rdchem import BondDir, BondType, ChiralType, HybridizationType
 
 class VALUES():

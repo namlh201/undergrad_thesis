@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Optional
 from torch import Tensor
 from torch.nn import Dropout, Module, GELU, TransformerEncoder, TransformerEncoderLayer
