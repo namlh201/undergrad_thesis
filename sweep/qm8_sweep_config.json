@@ -1,0 +1,38 @@
+{
+    "method": "bayes",
+    "name": "qm8",
+    "metric": {
+        "goal": "minimize",
+        "name": "val_loss"
+    },
+    "parameters": {
+        "epochs": {"values": [10, 20, 30, 50]},
+
+        "model": {
+            "parameters": {
+                "embed_dim": {"values": [32, 64]},
+                "dropout_rate": {"values": [0.1, 0.2, 0.3, 0.4, 0.5]},
+                "layer_num": {"min": 4, "max": 8},
+                "readout": {"values": ["mean", "sum"]},
+                "batch_size": {"values": [64, 128]}
+            }
+        },
+
+        "optim": {
+            "parameters": {
+                "lr": {"value": 10e-10},
+                "weight_decay": {"values": [5e-8, 5e-7, 5e-6, 5e-5, 5e-4]},
+                "base_lr": {"values": [10e-10, 10e-9, 10e-8, 10e-7, 10e-6]},
+                "max_lr": {"values": [10e-4, 10e-3, 10e-2]}
+            }
+        },
+
+        "pe": {
+            "parameters": {
+                "walk_length": {"min": 4, "max": 8},
+                "lambda": {"values": [0.4, 0.6, 0.8]},
+                "alpha": {"values": [0.4, 0.6, 0.8]}
+            }
+        }
+    }
+}

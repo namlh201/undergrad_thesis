@@ -1,0 +1,1 @@
+python train.py --dataset qm9 --config qm9_train_config.json

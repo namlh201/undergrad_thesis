@@ -1,0 +1,1 @@
+python test.py --dataset qm8 --config qm8_test_config.json

@@ -1,0 +1,1 @@
+python test.py --dataset qm7 --config qm7_test_config.json

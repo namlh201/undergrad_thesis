@@ -1,0 +1,1 @@
+python test.py --dataset qm9 --config qm9_test_config.json

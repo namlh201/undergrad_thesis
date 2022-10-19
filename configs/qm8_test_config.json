@@ -1,0 +1,28 @@
+{    
+    "atom_feat_names": ["atom_type", "formal_charge", "degree", 
+                        "chiral_tag", "num_bonded_Hs", "is_aromatic", 
+                        "hybridization"],
+    "atom_float_names": ["mass"],
+    "bond_feat_names": ["bond_dir", "bond_type", "is_in_ring", "is_conjugated"],
+    "bond_float_names": ["bond_length"],
+    "bond_angle_float_names": ["bond_angle"],
+
+    "tasks": ["E1-CC2", "E2-CC2", "f1-CC2", "f2-CC2",
+              "E1-PBE0-def2SVP", "E2-PBE0-def2SVP", "f1-PBE0-def2SVP", "f2-PBE0-def2SVP",
+              "E1-PBE0-def2TZVP", "E2-PBE0-def2TZVP", "f1-PBE0-def2TZVP", "f2-PBE0-def2TZVP",
+              "E1-CAM", "E2-CAM", "f1-CAM", "f2-CAM"],
+
+    "model": {
+        "embed_dim": 32,
+        "dropout_rate": 0.5,
+        "layer_num": 8,
+        "readout": "mean",
+        "batch_size": 64
+    },
+
+    "pe": {
+        "walk_length": 5,
+        "lambda": 0.7,
+        "alpha": 0.5
+    }
+}

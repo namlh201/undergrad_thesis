@@ -1,0 +1,1 @@
+python train.py --dataset qm8 --config qm8_train_config.json
