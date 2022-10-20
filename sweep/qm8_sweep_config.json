@@ -14,7 +14,7 @@
                 "dropout_rate": {"values": [0.1, 0.2, 0.3, 0.4, 0.5]},
                 "layer_num": {"min": 4, "max": 8},
                 "readout": {"values": ["mean", "sum"]},
-                "batch_size": {"values": [64, 128]}
+                "batch_size": {"values": [32, 64]}
             }
         },
 

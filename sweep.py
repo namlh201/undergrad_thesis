@@ -213,6 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_path', type=str, default='dataset', help='Data path')
     parser.add_argument('--config', type=str, default='qm7_train_config.json', help='Model config')
     parser.add_argument('--sweep', type=str, default='qm7_sweep_config.json', help='Model sweep config')
+    parser.add_argument('--num_agents', type=int, default=10, help='Number of sweep agents')
 
     args = parser.parse_args()
 
