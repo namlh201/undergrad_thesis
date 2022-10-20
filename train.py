@@ -68,76 +68,9 @@ def load_dataset(data_path: str, dataset: str, tasks: list) -> tuple[list, np.nd
     return graph_list_train, y_list_train,\
            graph_list_val, y_list_val
 
-def train_one_epoch(model, writer: SummaryWriter, data: tuple[list, np.ndarray], epoch: int, batch_size: int, *args):
-    graph_list_train, y_list_train = data
-
-    scaler, optimizer, lr_scheduler = args
-
-    train_loss = 0.0
-    num_train_batches = len(graph_list_train) // batch_size
-    model.train()
-    for batch_idx in tqdm(range(num_train_batches), desc='Training'):
-        batch_graph_list = []
-        batch_y_list = []
-        batch_train_idx = np.random.choice(len(graph_list_train), size=batch_size, replace=False)
-
-        batch_graph_list = list(map(lambda i: graph_list_train[i], batch_train_idx))
-        batch_y_list = y_list_train[batch_train_idx].T
-
-        # for i in batch_train_idx:
-        #     batch_graph_list.append(graph_list_train[int(i)])
-        #     batch_y_list.append(y_list_train[int(i)])
-
-        optimizer.zero_grad()
-        # with torch.cuda.amp.autocast():
-        batch_loss = model(batch_graph_list, batch_y_list)
-
-        print(f'Batch #{batch_idx + 1} loss = {batch_loss}')
-
-        # writer.add_scalar('training_loss', batch_loss, epoch * num_train_batches + batch_idx)
-
-        scaler.scale(batch_loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-        writer.add_scalar('learning_rate', optimizer.param_groups[0]["lr"], epoch * num_train_batches + batch_idx)
-        lr_scheduler.step()
-
-        train_loss += batch_loss.item()
-    train_loss = train_loss / num_train_batches
-
-    return train_loss
-
-def val_one_epoch(model, data: tuple[list, np.ndarray], batch_size: int):
-    graph_list_val, y_list_val = data
-
-    val_loss = 0.0
-    num_val_batches = len(graph_list_val) // batch_size
-    model.eval()
-    for batch_idx in tqdm(range(num_val_batches), 'Validating'):
-        batch_graph_list = []
-        batch_y_list = []
-        # batch_val_idx = np.random.choice(len(graph_list_val), size=batch_size, replace=False)
-        batch_val_idx = np.arange(batch_size) + batch_idx
-
-        batch_graph_list = list(map(lambda i: graph_list_val[int(i)], batch_val_idx))
-        batch_y_list = y_list_val[batch_val_idx].T
-
-        # for i in batch_val_idx:
-        #     batch_graph_list.append(graph_list_val[int(i)])
-        #     batch_y_list.append(y_list_val[int(i)])
-
-        batch_loss = model(batch_graph_list, batch_y_list)
-
-        # writer.add_scalar('validate_loss', batch_loss, epoch * num_val_batches + batch_idx)
-
-        val_loss += batch_loss.item()
-    val_loss = val_loss / num_val_batches
-
-    return val_loss
-
 def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarray, list, np.ndarray], *args):
-    epochs = config.get('epochs', 10)
-    batch_size = config.get('batch_size', 32)
+    epochs = config['epochs']
+    batch_size = config['model']['batch_size']
 
     graph_list_train, y_list_train,\
     graph_list_val, y_list_val = data
@@ -162,23 +95,63 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
         print(f'Epoch #{epoch + 1}:')
 
         print('Training:')
-        train_loss = train_one_epoch(
-            model,
-            writer,
-            (graph_list_train, y_list_train),
-            epoch,
-            batch_size,
-            scaler, optimizer, lr_scheduler,
-        )
+        train_loss = 0.0
+        num_train_batches = len(graph_list_train) // batch_size
+        model.train()
+        for batch_idx in tqdm(range(num_train_batches), desc='Training'):
+            batch_graph_list = []
+            batch_y_list = []
+            batch_train_idx = np.random.choice(len(graph_list_train), size=batch_size, replace=False)
+
+            batch_graph_list = list(map(lambda i: graph_list_train[i], batch_train_idx))
+            batch_y_list = y_list_train[batch_train_idx].T
+
+            # for i in batch_train_idx:
+            #     batch_graph_list.append(graph_list_train[int(i)])
+            #     batch_y_list.append(y_list_train[int(i)])
+
+            optimizer.zero_grad()
+            # with torch.cuda.amp.autocast():
+            batch_loss = model(batch_graph_list, batch_y_list)
+
+            print(f'Batch #{batch_idx + 1} loss = {batch_loss}')
+
+            # writer.add_scalar('training_loss', batch_loss, epoch * num_train_batches + batch_idx)
+
+            scaler.scale(batch_loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            writer.add_scalar('learning_rate', optimizer.param_groups[0]["lr"], epoch * num_train_batches + batch_idx)
+            lr_scheduler.step()
+
+            train_loss += batch_loss.item()
+        train_loss = train_loss / num_train_batches
         writer.add_scalar('training_loss', train_loss, epoch)
         print('Training complete\n')
 
         print('Validating:')
-        val_loss = val_one_epoch(
-            model,
-            (graph_list_val, y_list_val),
-            batch_size,
-        )
+        val_loss = 0.0
+        num_val_batches = len(graph_list_val) // batch_size
+        model.eval()
+        for batch_idx in tqdm(range(num_val_batches), 'Validating'):
+            batch_graph_list = []
+            batch_y_list = []
+            # batch_val_idx = np.random.choice(len(graph_list_val), size=batch_size, replace=False)
+            batch_val_idx = np.arange(batch_size) + batch_idx
+
+            batch_graph_list = list(map(lambda i: graph_list_val[int(i)], batch_val_idx))
+            batch_y_list = y_list_val[batch_val_idx].T
+
+            # for i in batch_val_idx:
+            #     batch_graph_list.append(graph_list_val[int(i)])
+            #     batch_y_list.append(y_list_val[int(i)])
+
+            batch_loss = model(batch_graph_list, batch_y_list)
+
+            # writer.add_scalar('validate_loss', batch_loss, epoch * num_val_batches + batch_idx)
+
+            val_loss += batch_loss.item()
+        val_loss = val_loss / num_val_batches
         writer.add_scalar('validate_loss', val_loss, epoch)
         print('Validating complete\n')
 

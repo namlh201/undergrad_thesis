@@ -22,7 +22,10 @@ class LaplacianEigenvectorLoss(Module):
         n = pe.size(0) # num_nodes in batch
 
         A = adj_mat.float()
-        D = torch.diag(torch.sum(A, dim=-1, dtype=torch.float)) # degree mat
+        deg_A = torch.sum(A, dim=1, dtype=torch.float)
+        mask = deg_A.eq(0.)
+        deg_A = deg_A.masked_fill(mask, 1.)
+        D = torch.diag(deg_A) # degree mat
 
         D_inv_sqrt = D.inverse() ** 0.5
 
