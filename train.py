@@ -142,7 +142,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
     graph_list_train, y_list_train,\
     graph_list_val, y_list_val = data
     
-    y_list_train, y_list_val = y_list_train.T, y_list_val.T
+    # y_list_train, y_list_val = y_list_train.T, y_list_val.T
     y_list_train, y_list_val = y_list_train.squeeze(), y_list_val.squeeze()
 
     scaler, optimizer, lr_scheduler, dataset, tasks = args

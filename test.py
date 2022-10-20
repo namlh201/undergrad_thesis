@@ -62,7 +62,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
 
     graph_list_test, y_list_test = data
     
-    y_list_test = y_list_test.T
+    # y_list_test = y_list_test.T
     y_list_test = y_list_test.squeeze()
 
     print(len(graph_list_test))
