@@ -132,7 +132,7 @@ def val_one_epoch(model, data: tuple[list, np.ndarray], batch_size: int):
     return val_loss
 
 def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarray, list, np.ndarray], *args):
-    epochs = config['model']['epochs']
+    epochs = config['epochs']
     batch_size = config['model']['batch_size']
 
     graph_list_train, y_list_train,\
