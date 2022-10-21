@@ -71,6 +71,9 @@ def load_dataset(data_path: str, dataset: str, tasks: list) -> tuple[list, np.nd
 def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarray, list, np.ndarray], *args):
     epochs = config['epochs']
     batch_size = config['model']['batch_size']
+    embed_dim = config['model']['embed_dim']
+    layer_num = config['model']['layer_num']
+    readout = config['model']['readout']
 
     graph_list_train, y_list_train,\
     graph_list_val, y_list_val = data
@@ -112,7 +115,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
 
             optimizer.zero_grad()
             # with torch.cuda.amp.autocast():
-            batch_loss = model(batch_graph_list, batch_y_list)
+            batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
             print(f'Batch #{batch_idx + 1} loss = {batch_loss}')
 
@@ -146,7 +149,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             #     batch_graph_list.append(graph_list_val[int(i)])
             #     batch_y_list.append(y_list_val[int(i)])
 
-            batch_loss = model(batch_graph_list, batch_y_list)
+            batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
             # writer.add_scalar('validate_loss', batch_loss, epoch * num_val_batches + batch_idx)
 
@@ -161,7 +164,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             min_valid_loss = val_loss
             
             # Saving State Dict
-            torch.save(model.state_dict(), model_path / f'model_b{batch_size}_e{epoch + 1}.pth')
+            torch.save(model.state_dict(), model_path / f'model_b{batch_size}_eb{embed_dim}_l{layer_num}_r{readout}_e{epoch + 1}.pth')
 
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

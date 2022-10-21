@@ -210,7 +210,7 @@ class PredModel(Module):
 
             self.tasks_mlp.append(mlp)
 
-        self.loss_task = SmoothL1Loss()
+        self.loss_tasks = SmoothL1Loss(reduction='none')
         self.loss_pe = LaplacianEigenvectorLoss(self.lambda_loss)
 
     @property
@@ -259,16 +259,15 @@ class PredModel(Module):
 
         # return y_pred
 
-        loss_task = self.loss_task(y_pred, y)
+        loss_tasks = self.loss_tasks(y_pred, y)
         loss_pe = self.loss_pe(pe_repr_feat, adj_mat, batch_index)
-        print(loss_task, loss_pe)
 
-        loss_task = loss_task / batch_size
+        loss_tasks = torch.mean(loss_tasks, dim=1)
         # loss_pe = loss_pe / batch_size
 
-        loss = loss_task + self.alpha_loss * loss_pe
+        loss = loss_tasks.mean() + self.alpha_loss * loss_pe
 
-        return loss
+        return loss, loss_tasks
 
 
 

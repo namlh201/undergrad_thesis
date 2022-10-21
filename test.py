@@ -58,7 +58,7 @@ def load_dataset(data_path: str, dataset: str, tasks: list) -> tuple[list, np.nd
 
 def test(model, config: dict, data: tuple[list, np.ndarray]):
     # epochs = config.get('epoch', 10)
-    batch_size = config['model'].get('batch_size', 32)
+    batch_size = config['model']['batch_size']
 
     graph_list_test, y_list_test = data
     
@@ -69,6 +69,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
 
     print('Testing:')
     test_loss = 0.0
+    test_loss_tasks = torch.zeros((y_list_test.size(-1), ), dtype=torch.float)
     num_test_batches = len(graph_list_test) // batch_size
     model.eval()
     for batch_idx in tqdm(range(num_test_batches), 'Testing'):
@@ -83,18 +84,22 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
         #     batch_graph_list.append(graph_list_test[int(i)])
         #     batch_y_list.append(y_list_test[int(i)])
 
-        batch_loss = model(batch_graph_list, batch_y_list)
+        batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
         test_loss += batch_loss.item()
+        test_loss_tasks = test_loss_tasks + batch_loss_tasks
     test_loss = test_loss / num_test_batches
+    test_loss_tasks = test_loss_tasks / num_test_batches
     print('Testing complete\n')
 
     print(f'Testing Loss: {test_loss}')
 
+    return test_loss_tasks
+
 def main(args):
     model_path = Path(os.path.join(ROOT, 'model'))
-    model_path = model_path / args.dataset / args.task
-    MODEL_NAME = 'model_batch_size_32_epoch_8'
+    model_path = model_path / args.dataset / 'all_tasks'
+    MODEL_NAME = 'model_batch_size_64_epoch_2'
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -105,7 +110,10 @@ def main(args):
 
     graph_list_test, y_list_test = load_dataset(args.data_path, args.dataset, config['tasks'])
 
-    test(model, config, (graph_list_test, y_list_test))
+    test_loss_tasks = test(model, config, (graph_list_test, y_list_test))
+
+    for task, loss in zip(TASKS[args.dataset], test_loss_tasks):
+        print(f'Loss {task} = {loss}')
 
 if __name__ == '__main__':
     parser = ArgumentParser()
