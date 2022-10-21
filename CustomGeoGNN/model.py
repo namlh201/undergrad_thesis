@@ -262,7 +262,8 @@ class PredModel(Module):
         loss_tasks = self.loss_tasks(y_pred, y)
         loss_pe = self.loss_pe(pe_repr_feat, adj_mat, batch_index)
 
-        loss_tasks = torch.mean(loss_tasks, dim=1)
+        if len(loss_tasks.shape) > 1:
+            loss_tasks = torch.mean(loss_tasks, dim=-1)
         # loss_pe = loss_pe / batch_size
 
         loss = loss_tasks.mean() + self.alpha_loss * loss_pe
