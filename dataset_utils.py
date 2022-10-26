@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 import json
 from pathlib import Path
 import pickle
+from pprint import pprint
 
 import traceback
 import sys
@@ -101,7 +102,7 @@ def molecule_to_graph(mol: Mol) -> tuple[AtomBondGraphFromMol, BondAngleGraphFro
     bond_angle_graph = BondAngleGraphFromMol(mol)
     return atom_bond_graph, bond_angle_graph
 
-def read_dataset(data_path: str, dataset: str) -> tuple[list, DataFrame]:
+def read_dataset(data_path: str, dataset: str, normalize: bool) -> tuple[list, DataFrame]:
     mol_path = os.path.join(ROOT, data_path, dataset, f'{dataset}.sdf')
     y_path = os.path.join(ROOT, data_path, dataset, f'{dataset}.sdf.csv')
 
@@ -110,14 +111,20 @@ def read_dataset(data_path: str, dataset: str) -> tuple[list, DataFrame]:
     # Get the values only
     y_list = y_list[TASKS[dataset]]
 
+    if normalize:
+        y_list = (y_list - y_list.mean()) / y_list.std()
+
     return mol_list, y_list
 
-def save_splitted_dataset(dataset: str, *args):
+def save_splitted_dataset(dataset: str, normalize: bool, *args):
     graph_list_train, y_list_train,\
     graph_list_val, y_list_val,\
     graph_list_test, y_list_test = args
 
     dataset_path = 'dataset'
+    if normalize:
+        dataset = dataset + '_norm'
+
     train_path = Path(os.path.join(ROOT, dataset_path, dataset, 'train'))
     val_path = Path(os.path.join(ROOT, dataset_path, dataset, 'val'))
     test_path = Path(os.path.join(ROOT, dataset_path, dataset, 'test'))
@@ -155,7 +162,7 @@ def save_splitted_dataset(dataset: str, *args):
 
 def main(args):
     print(f'Reading dataset {args.dataset} at {args.data_path}', end=' ')
-    mol_list, y_list = read_dataset(args.data_path, args.dataset)
+    mol_list, y_list = read_dataset(args.data_path, args.dataset, args.normalize)
     print('[Done]')
 
     print(f'Cleaning dataset {args.dataset}', end=' ')
@@ -172,7 +179,7 @@ def main(args):
 
     if args.save:
         print(f'Saving splitted dataset {args.dataset} to dataset', end=' ')
-        save_splitted_dataset(args.dataset, 
+        save_splitted_dataset(args.dataset, args.normalize,
                               graph_list_train, y_list_train,
                               graph_list_val, y_list_val,
                               graph_list_test, y_list_test)
@@ -188,9 +195,12 @@ if __name__ == '__main__':
     parser.add_argument('--train_size', type=float, default=0.8, help='Size of training set')
     parser.add_argument('--val_size', type=float, default=0.1, help='Size of validating set')
     parser.add_argument('--test_size', type=float, default=0.1, help='Size of testing set')
+    parser.add_argument('--normalize', type=bool, default=False, help='Whether to normalize targets')
     parser.add_argument('--save', type=bool, default=False, help='Whether to save dataset in pickle format after splitting')
 
     args = parser.parse_args()
+
+    pprint(args)
 
     # assert(args.task in TASKS[args.dataset], f'Task must be one of {TASKS[args.dataset]}')
 

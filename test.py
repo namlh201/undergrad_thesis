@@ -65,11 +65,12 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
     # y_list_test = y_list_test.T
     y_list_test = y_list_test.squeeze()
 
-    print(len(graph_list_test))
-
     print('Testing:')
     test_loss = 0.0
-    test_loss_tasks = torch.zeros((y_list_test.size(-1), ), dtype=torch.float)
+    if len(y_list_test.shape) > 1:
+        test_loss_tasks = torch.zeros(y_list_test.size(-1), dtype=torch.float).to(model.device)
+    else:
+        test_loss_tasks = torch.zeros(1, dtype=torch.float).to(model.device)
     num_test_batches = len(graph_list_test) // batch_size
     model.eval()
     for batch_idx in tqdm(range(num_test_batches), 'Testing'):
@@ -78,16 +79,16 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
         batch_test_idx = np.arange(batch_size) + batch_idx
 
         batch_graph_list = list(map(lambda i: graph_list_test[int(i)], batch_test_idx))
-        batch_y_list = y_list_test[batch_test_idx]
+        batch_y_list = y_list_test[batch_test_idx].to_numpy()
 
         # for i in batch_test_idx:
         #     batch_graph_list.append(graph_list_test[int(i)])
         #     batch_y_list.append(y_list_test[int(i)])
 
-        batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
+        batch_loss_train_with_pe, batch_loss_train, batch_loss_mean, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
-        test_loss += batch_loss.item()
-        test_loss_tasks = test_loss_tasks + batch_loss_tasks
+        test_loss += batch_loss_mean.item()
+        test_loss_tasks = test_loss_tasks + batch_loss_tasks.clone().detach()
     test_loss = test_loss / num_test_batches
     test_loss_tasks = test_loss_tasks / num_test_batches
     print('Testing complete\n')
@@ -99,7 +100,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
 def main(args):
     model_path = Path(os.path.join(ROOT, 'model'))
     model_path = model_path / args.dataset / 'all_tasks'
-    MODEL_NAME = 'model_batch_size_64_epoch_2'
+    MODEL_NAME = 'curr_best_model_20221026_151437_b64_eb32_l8_rmean_e10'
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -118,7 +119,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9'], help='Name of Dataset')
+    parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9', 'qm9_norm'], help='Name of Dataset')
     # parser.add_argument('--task', type=str, help='Name of Task')
     # parser.add_argument('--raw_data_path', type=str, default='raw_data', help='Raw data path')
     parser.add_argument('--data_path', type=str, default='dataset', help='Data path')

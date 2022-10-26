@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import os
 from argparse import ArgumentParser
 import json
@@ -115,13 +117,13 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
 
             optimizer.zero_grad()
             # with torch.cuda.amp.autocast():
-            batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
+            batch_loss_with_pe, batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
             print(f'Batch #{batch_idx + 1} loss = {batch_loss}')
 
             # writer.add_scalar('training_loss', batch_loss, epoch * num_train_batches + batch_idx)
 
-            scaler.scale(batch_loss).backward()
+            scaler.scale(batch_loss_with_pe).backward()
             scaler.step(optimizer)
             scaler.update()
             writer.add_scalar('learning_rate', optimizer.param_groups[0]["lr"], epoch * num_train_batches + batch_idx)
@@ -145,7 +147,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             batch_graph_list = list(map(lambda i: graph_list_val[int(i)], batch_val_idx))
             batch_y_list = y_list_val[batch_val_idx].T
 
-            batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
+            batch_loss_with_pe, batch_loss, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
             # writer.add_scalar('validate_loss', batch_loss, epoch * num_val_batches + batch_idx)
 
@@ -165,8 +167,11 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             print(f'Validation Loss Decreased({min_valid_loss:.6f}--->{val_loss:.6f}) \t Saving The Model')
             min_valid_loss = val_loss
             
+            now = datetime.now()
+            now = now.strftime('%Y%m%d_%H%M%S')
+
             # Saving State Dict
-            torch.save(model.state_dict(), model_path / f'model_b{batch_size}_eb{embed_dim}_l{layer_num}_r{readout}_e{epoch + 1}.pth')
+            torch.save(model.state_dict(), model_path / f'model_{now}_b{batch_size}_eb{embed_dim}_l{layer_num}_r{readout}_e{epoch + 1}.pth')
 
 def _main(args):
     run = wandb.init(project=args.dataset, resume=True)

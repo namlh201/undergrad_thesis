@@ -14,6 +14,7 @@
 
     "model": {
         "embed_dim": 32,
+        "hidden_dim": 128,
         "dropout_rate": 0.5,
         "layer_num": 8,
         "readout": "mean",
@@ -23,6 +24,6 @@
     "pe": {
         "walk_length": 5,
         "lambda": 0.7,
-        "alpha": 0.5
+        "alpha": 0.01
     }
 }

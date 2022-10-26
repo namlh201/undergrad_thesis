@@ -50,7 +50,8 @@ class GraphPairEmbeddingBatch(nn.Module):
         ba_node_inc_val = 0
         ba_edge_inc_val = 0
         batch_inc_val = 0
-        for i in tqdm(range(len(atom_bond_graph_list)), desc='Embedding'):
+        # for i in tqdm(range(len(atom_bond_graph_list)), desc='Embedding'):
+        for i in range(len(atom_bond_graph_list)):
             atom_bond_graph = atom_bond_graph_list[i]
             bond_angle_graph = bond_angle_graph_list[i]
 

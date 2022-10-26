@@ -9,26 +9,27 @@
 
     "tasks": ["u0_atom"],
 
-    "epochs": 10,
+    "epochs": 50,
 
     "model": {
         "embed_dim": 32,
-        "dropout_rate": 0.5,
+        "hidden_dim": 256,
+        "dropout_rate": 0.2,
         "layer_num": 8,
         "readout": "mean",
         "batch_size": 64
     },
     
     "optim": {
-        "lr": 10e-3,
+        "lr": 5e-5,
         "weight_decay": 5e-4,
-        "base_lr": 10e-3,
-        "max_lr": 0.1
+        "base_lr": 5e-5,
+        "max_lr": 1e-2
     },
 
     "pe": {
         "walk_length": 5,
-        "lambda": 0.7,
-        "alpha": 0.5
+        "lambda": 0.5,
+        "alpha": 2
     }
 }

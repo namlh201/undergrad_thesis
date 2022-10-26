@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import torch
 from torch import Tensor
-from torch.nn import Module
+from torch.nn import Module, L1Loss, SmoothL1Loss
+from torch.nn.parameter import Parameter
 from torch.linalg import norm
 
 class LaplacianEigenvectorLoss(Module):
@@ -48,3 +49,120 @@ class LaplacianEigenvectorLoss(Module):
         loss_pe = (loss_pe_1 + self.lambda_loss * loss_pe_2) / (k * batch_size * n) 
 
         return loss_pe
+
+
+class StdL1Loss(Module):
+    '''
+        Src: http://cjcp.ustc.edu.cn/hxwlxb/article/doi/10.1063/1674-0068/cjcp2203055
+    '''
+    def __init__(self, reduction: str='mean'):
+        super(StdL1Loss, self).__init__()
+        self.l1_loss = L1Loss(reduction='none')
+        self.reduction = reduction
+
+    def forward(self, input: Tensor, target: Tensor):
+        std = torch.std(target, dim=-1)
+        
+        loss = self.l1_loss(input, target)
+
+        if self.reduction == 'none':
+            return loss / std
+        else:
+            if len(loss.shape) > 1:
+                loss = torch.mean(loss, dim=-1)
+
+            if self.reduction == 'mean':
+                return torch.mean(loss / std)
+            elif self.reduction == 'sum':
+                return torch.sum(loss / std)
+
+class StdSmoothL1Loss(Module):
+    '''
+        Src: http://cjcp.ustc.edu.cn/hxwlxb/article/doi/10.1063/1674-0068/cjcp2203055
+    '''
+    def __init__(self, reduction: str='mean'):
+        super(StdSmoothL1Loss, self).__init__()
+        self.l1_loss = SmoothL1Loss(reduction='none')
+        self.reduction = reduction
+
+    def forward(self, input: Tensor, target: Tensor):
+        std = torch.std(target, dim=-1)
+        
+        loss = self.l1_loss(input, target)
+
+        if self.reduction == 'none':
+            return (loss.T / std).T
+        else:
+            if len(loss.shape) > 1:
+                loss = torch.mean(loss, dim=-1)
+
+            if self.reduction == 'mean':
+                return torch.mean(loss / std)
+            elif self.reduction == 'sum':
+                return torch.sum(loss / std)
+
+class UncertaintyLoss(Module):
+    '''
+        Revised Uncertainty Loss function
+        Src: http://cjcp.ustc.edu.cn/hxwlxb/article/doi/10.1063/1674-0068/cjcp2203055
+             https://arxiv.org/abs/1805.06334
+    '''
+    def __init__(self, num_tasks: int):
+        super(UncertaintyLoss, self).__init__()
+
+        self.num_tasks = num_tasks
+        self.log_sigma = Parameter(torch.zeros(num_tasks))
+
+    def forward(self, loss: Tensor):
+        print('log_sigma', self.log_sigma)
+
+        if self.num_tasks == 1:
+            return torch.mean(loss)
+
+        loss_l = 0.5 * loss / torch.exp(self.log_sigma) ** 2
+        loss_r = torch.log(1 + torch.exp(self.log_sigma) ** 2)
+
+        return torch.sum(loss_l + loss_r)
+
+class DynamicWeightAverageLoss(Module):
+    '''
+        Src: http://cjcp.ustc.edu.cn/hxwlxb/article/doi/10.1063/1674-0068/cjcp2203055
+             https://arxiv.org/abs/1803.10704
+    '''
+    def __init__(self, num_tasks: int):
+        super(DynamicWeightAverageLoss, self).__init__()
+
+        self.num_tasks = num_tasks
+
+        # temperature
+        self.T = 2
+
+        self.prev_prev_loss = torch.empty(0)
+        self.prev_loss = torch.empty(0)
+
+        self.weight = torch.tensor([1.] * self.num_tasks, requires_grad=False)
+
+    def get_last_delta_loss(self) -> Tensor:
+        return self.prev_loss / self.prev_prev_loss
+
+    def forward(self, loss: Tensor, iteration: int=None):
+        print('weight', self.weight)
+
+        if iteration == None:
+            return torch.sum(self.weight * loss)
+
+        if iteration == 1 or iteration == 2:
+            w = torch.tensor([1.] * self.num_tasks, requires_grad=False)
+        else:
+            w = self.get_last_delta_loss()
+
+        # update
+        self.prev_prev_loss = self.prev_loss.clone().detach()
+        self.prev_loss = loss.clone().detach()
+
+        e = torch.exp(w / self.T)
+
+        self.weight = self.num_tasks * e / e.sum()
+        self.weight = self.weight.cuda()
+
+        return torch.sum(self.weight * loss)

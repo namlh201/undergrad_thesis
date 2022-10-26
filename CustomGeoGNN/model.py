@@ -3,13 +3,13 @@ from __future__ import annotations
 # from typing import Optional
 import torch
 from torch import Tensor
-from torch.nn import Dropout, Module, ModuleList, Sequential, ReLU, GELU, SmoothL1Loss
+from torch.nn import Dropout, Module, ModuleList, Sequential, ReLU, GELU, SmoothL1Loss, MSELoss
 from torch_geometric.nn import global_mean_pool, global_add_pool, Linear
 from tqdm import tqdm
 
 from .embed import GraphPairEmbeddingBatch
 from .module.block import GeoGNNBlock, TransformerBlock
-from .module.loss_fn import LaplacianEigenvectorLoss
+from .module.loss_fn import LaplacianEigenvectorLoss, DynamicWeightAverageLoss, UncertaintyLoss, StdSmoothL1Loss
 from .module.utils import UnitNorm
 from .utils.graph_utils import GraphUtils
 
@@ -57,7 +57,7 @@ class GeoGNNModel(Module):
                 )
             )
 
-        self.transformer_block = TransformerBlock(self.embed_dim, dropout_rate=self.dropout_rate)
+        self.transformer_block = TransformerBlock(self.embed_dim, num_layers=2, heads=4, dropout_rate=self.dropout_rate)
 
         self.pe_out = Sequential(
             Linear(self.embed_dim, self.walk_length, weight_initializer='glorot'),
@@ -93,8 +93,9 @@ class GeoGNNModel(Module):
 
         # print('pe_ab', pe_ab)
 
-        for layer_idx in tqdm(range(self.layer_num), desc='Learning from embed'):
-            print('Atom Bond Block #{}'.format(layer_idx + 1))
+        # for layer_idx in tqdm(range(self.layer_num), desc='Learning from embed'):
+        for layer_idx in range(self.layer_num):
+            # print('Atom Bond Block #{}'.format(layer_idx + 1))
             # print('bond_edge_index', bond_edge_index, bond_edge_index.shape, bond_edge_index.max())
             # print('atom_node_hidden_feat', atom_node_hidden_feat, atom_node_hidden_feat.shape, atom_node_hidden_feat.size(0))
             # print('pe_ab', pe_ab, pe_ab.shape, pe_ab.size(0))
@@ -136,16 +137,18 @@ class GeoGNNModel(Module):
         edge_repr_feat = edge_hidden_list[-1]
         pe_repr_feat = pe_hidden_list[-1]
 
-        node_repr_feat = self.transformer_block(node_repr_feat, pe_repr_feat, bond_edge_index)
+        node_feat = self.transformer_block(node_repr_feat, pe_repr_feat, bond_edge_index)
         pe_repr_feat = self.pe_out(pe_repr_feat)
 
-        node_feat = node_repr_feat.to(self.device)
+        # node_feat = node_repr_feat
+
+        node_feat = node_repr_feat + node_feat
         # print(node_feat)
         # print(pe_repr_feat)
 
         # node_feat = []
         # for hidden_feat in node_hidden_list:
-        #     node_feat.append(global_mean_pool(hidden_feat, None))
+        #     hidden_feat = hidden_feat + node_tf_feat
 
         # graph_repr_feat = torch.cat(node_feat, dim=1)
 
@@ -153,9 +156,10 @@ class GeoGNNModel(Module):
 
         # graph_repr_feat = global_mean_pool(node_repr_feat, None)
 
-        # node_feat = node_hidden_list[4:]
+        # node_feat = node_hidden_list[-4:]
         # node_feat = torch.cat(node_feat, dim=1)
 
+        node_feat = node_feat.to(self.device)
         batch_list = batch_list.to(self.device)
         graph_repr_feat = self.graph_pool(node_feat, batch_list)
         # pe_repr_feat = self.graph_pool(pe_repr_feat, batch_list)
@@ -172,6 +176,7 @@ class PredModel(Module):
         # self.config = config
 
         self.embed_dim = config['model']['embed_dim']
+        self.hidden_dim = config['model']['hidden_dim']
         self.dropout_rate = config['model']['dropout_rate']
 
         self.lambda_loss = config['pe']['lambda']
@@ -185,9 +190,6 @@ class PredModel(Module):
         # self.bond_float_names = config['bond_float_names']
         # self.bond_angle_float_names = config['bond_angle_float_names']
 
-        # self.data_loader = MoleculeDataLoader(mol_list, y_list, config, batch_size=2, num_workers=1, device=device)
-        # self.data_loader = None
-
         # self.graph_pair_embedding = GraphPairEmbedding(self.atom_feat_names, self.bond_feat_names, self.embed_dim)
 
         # self.mol = mol
@@ -199,18 +201,34 @@ class PredModel(Module):
 
         for _ in range(self.num_tasks):
             mlp = Sequential(
-                Linear(self.embed_dim, 128, weight_initializer='glorot'),
+                Linear(self.embed_dim, self.hidden_dim, weight_initializer='glorot'),
                 ReLU(),
                 Dropout(p=self.dropout_rate),
-                Linear(128, 128, weight_initializer='glorot'),
+                # Linear(128, 256, weight_initializer='glorot'),
+                # GELU(),
+                # Dropout(p=self.dropout_rate),
+                Linear(self.hidden_dim, self.hidden_dim, weight_initializer='glorot'),
                 ReLU(),
                 Dropout(p=self.dropout_rate),
-                Linear(128, 1, weight_initializer='glorot')
+                # Linear(256, 128, weight_initializer='glorot'),
+                # GELU(),
+                # Dropout(p=self.dropout_rate),
+                Linear(self.hidden_dim, 1, weight_initializer='glorot')
             )
 
             self.tasks_mlp.append(mlp)
 
+        # self.loss_batch_train = UncertaintyLoss(self.num_tasks)
+        # self.loss_batch_train = DynamicWeightAverageLoss(self.num_tasks)
+        
+        # self.loss_batch = StdSmoothL1Loss()
+        # self.loss_tasks = StdSmoothL1Loss(reduction='none')
+        
+        self.loss_batch = SmoothL1Loss()
         self.loss_tasks = SmoothL1Loss(reduction='none')
+        
+        # self.loss_batch = MSELoss()
+        # self.loss_tasks = MSELoss(reduction='none')
         self.loss_pe = LaplacianEigenvectorLoss(self.lambda_loss)
 
     @property
@@ -218,14 +236,14 @@ class PredModel(Module):
         return next(self.parameters()).device
 
     # def forward(self, atom_bond_graph, bond_angle_graph):
-    def forward(self, graph_list, y_list):
+    def forward(self, graph_list, y_list, iteration: int=None):
         # self.data_loader = MoleculeDataLoader(mol_list, y_list, self.config, batch_size=2, num_workers=1, device=self.device)
 
         # graph_pair_set = self.data_loader.forward()
 
         batch_size = len(graph_list)
 
-        loss = 0.0
+        # loss = 0.0
         
         atom_bond_graph_list = []
         bond_angle_graph_list = []
@@ -248,28 +266,49 @@ class PredModel(Module):
 
         graph_repr_feat = graph_repr_feat.squeeze()
 
+        print(graph_repr_feat, graph_repr_feat.shape)
+
         # print(graph_repr)
         y_pred = []
 
         for task_mlp in self.tasks_mlp:
             y_pred.append(task_mlp(graph_repr_feat).squeeze(1))
 
+        # for name, param in self.tasks_mlp.named_parameters():
+        #     if param.requires_grad:
+        #         print(name, param.data, param.data.shape)
+
         y_pred = torch.stack(y_pred)
         y_pred = y_pred.squeeze()
 
         # return y_pred
 
-        loss_tasks = self.loss_tasks(y_pred, y)
+        # mean of (num_nodes, num_tasks) -> 1
+        loss_batch_mean = self.loss_batch(y_pred.float(), y.float())
+
+        # (num_nodes, num_tasks)
+        loss_tasks = self.loss_tasks(y_pred.float(), y.float())
+
         loss_pe = self.loss_pe(pe_repr_feat, adj_mat, batch_index)
 
+        # (num_tasks, 1)
         if len(loss_tasks.shape) > 1:
             loss_tasks = torch.mean(loss_tasks, dim=-1)
-        loss_tasks = loss_tasks / batch_size
+        else:
+            loss_tasks = torch.mean(loss_tasks)
+        # loss_tasks_batch = loss_tasks_batch.mean()
         # loss_pe = loss_pe / batch_size
 
-        loss = loss_tasks.mean() + self.alpha_loss * loss_pe
+        # loss_batch_train = self.loss_batch_train(loss_tasks)#, iteration)
+        
+        # sum of (num_tasks, 1) -> 1
+        loss_batch_train = torch.sum(loss_tasks)
 
-        return loss, loss_tasks
+        print(loss_tasks, loss_batch_train, loss_batch_mean, loss_pe)
+
+        loss_train_with_pe = loss_batch_train + self.alpha_loss * loss_pe
+
+        return loss_train_with_pe, loss_batch_train, loss_batch_mean, loss_tasks
 
 
 

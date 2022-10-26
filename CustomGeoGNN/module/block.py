@@ -23,7 +23,7 @@ class GeoGNNBlock(Module):
         self.gnn = GINConv(self.embed_dim)
         # self.gnn = GATv2Conv(self.embed_dim, self.embed_dim, heads=1, edge_dim=self.embed_dim)#, add_self_loops=False)
         # self.gnn = TransformerConv(self.embed_dim, self.embed_dim, edge_dim=self.embed_dim)
-        self.norm = LayerNorm(self.embed_dim)
+        self.norm = LayerNorm(self.embed_dim, mode='node')
         self.graph_norm = GraphNorm(self.embed_dim)
 
         if last_act:
@@ -143,7 +143,7 @@ class TransformerEncoderLayer(Module):
         return z
 
 class TransformerBlock(Module):
-    def __init__(self, embed_dim: int, num_layers: int=6, heads: int=4, dropout_rate: float=0.5):
+    def __init__(self, embed_dim: int, num_layers: int=2, heads: int=4, dropout_rate: float=0.5):
         super(TransformerBlock, self).__init__()
         
         self.embed_dim = embed_dim
@@ -154,7 +154,7 @@ class TransformerBlock(Module):
         self.transformer_encoder = ModuleList()
 
         for _ in range(self.num_layers):
-            self.transformer_encoder.append(TransformerEncoderLayer(self.embed_dim, self.heads, self.dropout_rate, activation='gelu'))
+            self.transformer_encoder.append(TransformerEncoderLayer(self.embed_dim, self.heads, self.dropout_rate, activation='relu'))
 
         # encoder_layer = TransformerEncoderLayer(embed_dim, heads, dropout=dropout_rate, activation='gelu')
         # self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers, norm=LayerNorm(embed_dim))
