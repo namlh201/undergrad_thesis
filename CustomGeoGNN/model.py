@@ -142,6 +142,8 @@ class GeoGNNModel(Module):
 
         # node_feat = node_repr_feat
 
+        if node_feat.size(0) < node_repr_feat.size(0):
+            node_feat = torch.cat(node_feat, torch.zeros_like(node_feat[0], dtype=torch.float))
         node_feat = node_repr_feat + node_feat
         # print(node_feat)
         # print(pe_repr_feat)
