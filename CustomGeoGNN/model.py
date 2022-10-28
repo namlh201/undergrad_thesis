@@ -236,7 +236,7 @@ class PredModel(Module):
         return next(self.parameters()).device
 
     # def forward(self, atom_bond_graph, bond_angle_graph):
-    def forward(self, graph_list, y_list, iteration: int=None):
+    def forward(self, graph_list, y_list):
         # self.data_loader = MoleculeDataLoader(mol_list, y_list, self.config, batch_size=2, num_workers=1, device=self.device)
 
         # graph_pair_set = self.data_loader.forward()

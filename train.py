@@ -120,7 +120,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             optimizer.zero_grad()
             # with torch.cuda.amp.autocast():
             batch_loss_train_with_pe, batch_loss_train, batch_loss_mean, batch_loss_tasks = \
-                model(batch_graph_list, batch_y_list, iteration=epoch * num_train_batches + batch_idx + 1)
+                model(batch_graph_list, batch_y_list)
 
             print(f'Batch #{batch_idx + 1} \t\t Train loss = {batch_loss_train} \t\t Mean loss = {batch_loss_mean}')
 
@@ -132,7 +132,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             writer.add_scalar('learning_rate', optimizer.param_groups[0]["lr"], epoch * num_train_batches + batch_idx + 1)
             lr_scheduler.step()
 
-            train_loss += batch_loss_train_with_pe.item()
+            train_loss += batch_loss_mean.item()
         train_loss = train_loss / num_train_batches
         # writer.add_scalar('training_loss', train_loss, epoch)
         print('Training complete\n')

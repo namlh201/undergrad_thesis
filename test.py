@@ -53,6 +53,7 @@ def load_dataset(data_path: str, dataset: str, tasks: list) -> tuple[list, np.nd
     #         y_list_test.append(pickle.load(f))
     y_list_test = pd.read_csv(test_path / 'test_values.csv')
     y_list_test = y_list_test[tasks]
+    y_list_test = y_list_test.to_numpy()
 
     return graph_list_test, y_list_test
 
@@ -68,7 +69,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
     print('Testing:')
     test_loss = 0.0
     if len(y_list_test.shape) > 1:
-        test_loss_tasks = torch.zeros(y_list_test.size(-1), dtype=torch.float).to(model.device)
+        test_loss_tasks = torch.zeros(y_list_test.shape[-1], dtype=torch.float).to(model.device)
     else:
         test_loss_tasks = torch.zeros(1, dtype=torch.float).to(model.device)
     num_test_batches = len(graph_list_test) // batch_size
@@ -79,7 +80,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
         batch_test_idx = np.arange(batch_size) + batch_idx
 
         batch_graph_list = list(map(lambda i: graph_list_test[int(i)], batch_test_idx))
-        batch_y_list = y_list_test[batch_test_idx].to_numpy()
+        batch_y_list = y_list_test[batch_test_idx].T
 
         # for i in batch_test_idx:
         #     batch_graph_list.append(graph_list_test[int(i)])
@@ -100,7 +101,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
 def main(args):
     model_path = Path(os.path.join(ROOT, 'model'))
     model_path = model_path / args.dataset / 'all_tasks'
-    MODEL_NAME = 'curr_best_model_20221026_151437_b64_eb32_l8_rmean_e10'
+    MODEL_NAME = 'best_model_20221022_102140_b64_eb32_l8_rmean_e3'
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
