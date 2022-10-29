@@ -143,7 +143,7 @@ class GeoGNNModel(Module):
         # node_feat = node_repr_feat
 
         if node_feat.size(0) < node_repr_feat.size(0):
-            node_feat = torch.cat((node_feat, torch.mean(node_feat, dim=-1)))
+            node_feat = torch.cat((node_feat.T.view(-1, node_feat.size(0)), torch.mean(node_feat, dim=1, keepdim=True).view(-1, 1)), dim=1).T
         node_feat = node_repr_feat + node_feat
         # print(node_feat)
         # print(pe_repr_feat)
