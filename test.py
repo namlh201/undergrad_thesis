@@ -86,9 +86,9 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
         #     batch_graph_list.append(graph_list_test[int(i)])
         #     batch_y_list.append(y_list_test[int(i)])
 
-        batch_loss_train_with_pe, batch_loss_train, batch_loss_mean, batch_loss_tasks = model(batch_graph_list, batch_y_list)
+        batch_loss_train_with_pe, batch_loss_sum, batch_loss_mean, batch_loss_tasks = model(batch_graph_list, batch_y_list)
 
-        test_loss += batch_loss_mean.item()
+        test_loss += batch_loss_sum.item()
         test_loss_tasks = test_loss_tasks + batch_loss_tasks.clone().detach()
     test_loss = test_loss / num_test_batches
     test_loss_tasks = test_loss_tasks / num_test_batches
