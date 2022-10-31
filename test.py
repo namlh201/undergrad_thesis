@@ -12,6 +12,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from CustomGeoGNN.model import PredModel
@@ -57,6 +58,39 @@ def load_dataset(data_path: str, dataset: str, tasks: list) -> tuple[list, np.nd
 
     return graph_list_test, y_list_test
 
+def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor=None, mode: str='test'):
+    if mode == 'train':
+        # mean of (num_nodes, num_tasks) -> 1
+        loss_batch_mean = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='mean')
+
+        # (num_nodes, num_tasks)
+        loss_tasks = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='none')
+
+        # (num_tasks, 1)
+        if len(loss_tasks.shape) > 1:
+            loss_tasks = torch.mean(loss_tasks, dim=-1)
+        else:
+            loss_tasks = torch.mean(loss_tasks)
+        
+        # sum of (num_tasks, 1) -> 1
+        loss_batch_sum = torch.sum(loss_tasks)
+
+        print(loss_tasks, loss_batch_sum, loss_batch_mean, loss_pe)
+
+        loss_train = loss_batch_sum + 0.7 * loss_pe
+
+        return loss_train, loss_batch_sum, loss_batch_mean
+    elif mode == 'test':
+        # mean of (num_nodes, num_tasks) -> 1
+        loss_batch_mean = F.l1_loss(y_pred.float(), y.float(), reduction='mean')
+
+        # (num_nodes, num_tasks)
+        loss_tasks = F.l1_loss(y_pred.float(), y.float(), reduction='none')
+
+        print(loss_tasks, loss_batch_mean)
+
+        return loss_batch_mean, loss_tasks
+
 def test(model, config: dict, data: tuple[list, np.ndarray]):
     # epochs = config.get('epoch', 10)
     batch_size = config['model']['batch_size']
@@ -86,9 +120,10 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
         #     batch_graph_list.append(graph_list_test[int(i)])
         #     batch_y_list.append(y_list_test[int(i)])
 
-        batch_loss_train_with_pe, batch_loss_sum, batch_loss_mean, batch_loss_tasks = model(batch_graph_list, batch_y_list)
+        y_pred, _ = model(batch_graph_list)
+        batch_loss_mean, batch_loss_tasks = loss(y_pred, batch_y_list, mode='test')
 
-        test_loss += batch_loss_sum.item()
+        test_loss += batch_loss_mean.item()
         test_loss_tasks = test_loss_tasks + batch_loss_tasks.clone().detach()
     test_loss = test_loss / num_test_batches
     test_loss_tasks = test_loss_tasks / num_test_batches

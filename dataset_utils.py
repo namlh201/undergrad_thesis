@@ -19,6 +19,15 @@ from rdkit.Chem.rdmolfiles import MolToSmiles, SDMolSupplier
 from CustomGeoGNN.classes import AtomBondGraphFromMol, BondAngleGraphFromMol
 from CustomGeoGNN.utils.split import ScaffoldSplit
 
+HAR2EV = 27.211386246
+KCALMOL2EV = 0.04336414
+
+qm9_conversion = [
+    1., 1., 1., 1., 1., HAR2EV, HAR2EV, HAR2EV, 1.,
+    HAR2EV, HAR2EV, HAR2EV, HAR2EV, HAR2EV,
+    1., KCALMOL2EV, KCALMOL2EV, KCALMOL2EV, KCALMOL2EV,
+]
+
 ROOT = os.getcwd()
 
 def load_tasks(tasks_path: str) -> dict:
@@ -108,6 +117,10 @@ def read_dataset(data_path: str, dataset: str, normalize: bool) -> tuple[list, D
 
     mol_list = SDMolSupplier(mol_path, removeHs=False)
     y_list = read_csv(y_path)
+
+    if dataset == 'qm9':
+        y_list = y_list[y_list.columns[1:]] * qm9_conversion
+
     # Get the values only
     y_list = y_list[TASKS[dataset]]
 

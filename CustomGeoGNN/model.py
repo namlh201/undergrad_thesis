@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from .embed import GraphPairEmbeddingBatch
 from .module.block import GeoGNNBlock, TransformerBlock
-from .module.loss_fn import LaplacianEigenvectorLoss, DynamicWeightAverageLoss, UncertaintyLoss, StdSmoothL1Loss
+from .module.loss_fn import LaplacianEigenvectorLoss, DynamicWeightAverageLoss, UncertaintyLoss, StdSmoothL1Loss, laplacian_eigenvector_loss
 from .module.utils import UnitNorm
 from .utils.graph_utils import GraphUtils
 
@@ -24,6 +24,7 @@ class GeoGNNModel(Module):
         self.batch_size = config['model']['batch_size']
 
         self.walk_length = config['pe']['walk_length']
+        self.lambda_loss = config['pe']['lambda']
 
         self.atom_feat_names = config['atom_feat_names']
         self.bond_feat_names = config['bond_feat_names']
@@ -140,6 +141,8 @@ class GeoGNNModel(Module):
         node_feat = self.transformer_block(node_repr_feat, pe_repr_feat, bond_edge_index)
         pe_repr_feat = self.pe_out(pe_repr_feat)
 
+        loss_pe = laplacian_eigenvector_loss(pe_repr_feat, adj_mat_ab, batch_index_ab, self.lambda_loss)
+
         # node_feat = node_repr_feat
 
         if node_feat.size(0) < node_repr_feat.size(0):
@@ -170,7 +173,7 @@ class GeoGNNModel(Module):
 
         # (num_atoms, embed_dim), (num_bonds, embed_dim), (1, embed_dim)
         # return node_repr_feat, edge_repr_feat, graph_repr_feat, pe_repr_feat
-        return graph_repr_feat, (pe_repr_feat, adj_mat_ab, batch_index_ab)
+        return graph_repr_feat, loss_pe
 
 class PredModel(Module):
     def __init__(self, config: dict):
@@ -223,22 +226,22 @@ class PredModel(Module):
         # self.loss_batch_train = UncertaintyLoss(self.num_tasks)
         # self.loss_batch_train = DynamicWeightAverageLoss(self.num_tasks)
         
-        # self.loss_batch = StdSmoothL1Loss()
-        # self.loss_tasks = StdSmoothL1Loss(reduction='none')
+        self.loss_batch = StdSmoothL1Loss()
+        self.loss_tasks = StdSmoothL1Loss(reduction='none')
         
-        self.loss_batch = SmoothL1Loss()
-        self.loss_tasks = SmoothL1Loss(reduction='none')
+        # self.loss_batch = SmoothL1Loss()
+        # self.loss_tasks = SmoothL1Loss(reduction='none')
         
         # self.loss_batch = MSELoss()
         # self.loss_tasks = MSELoss(reduction='none')
-        self.loss_pe = LaplacianEigenvectorLoss(self.lambda_loss)
+        # self.loss_pe = LaplacianEigenvectorLoss(self.lambda_loss)
 
     @property
     def device(self):
         return next(self.parameters()).device
 
     # def forward(self, atom_bond_graph, bond_angle_graph):
-    def forward(self, graph_list, y_list):
+    def forward(self, graph_list):
         # self.data_loader = MoleculeDataLoader(mol_list, y_list, self.config, batch_size=2, num_workers=1, device=self.device)
 
         # graph_pair_set = self.data_loader.forward()
@@ -258,17 +261,19 @@ class PredModel(Module):
             # graph_pair = self.graph_pair_embedding(atom_bond_graph, bond_angle_graph)
 
         # atom_repr, bond_repr, graph_repr = self.encoder(atom_bond_graph, bond_angle_graph)
-        graph_repr_feat, pe_repr = self.encoder(atom_bond_graph_list, bond_angle_graph_list)
-        pe_repr_feat, adj_mat, batch_index = pe_repr
+        # graph_repr_feat, pe_repr = self.encoder(atom_bond_graph_list, bond_angle_graph_list)
+        # pe_repr_feat, adj_mat, batch_index = pe_repr
+
+        graph_repr_feat, loss_pe = self.encoder(atom_bond_graph_list, bond_angle_graph_list)
         
         # y = atom_bond_graph.y
         # y = torch.Tensor([graph_pair_set.y]).to(self.device)
-        y = torch.tensor(y_list).to(self.device)
-        y = y.squeeze()
+        # y = torch.tensor(y_list).to(self.device)
+        # y = y.squeeze()
 
         graph_repr_feat = graph_repr_feat.squeeze()
 
-        print(graph_repr_feat, graph_repr_feat.shape)
+        # print(graph_repr_feat, graph_repr_feat.shape)
 
         # print(graph_repr)
         y_pred = []
@@ -283,34 +288,34 @@ class PredModel(Module):
         y_pred = torch.stack(y_pred)
         y_pred = y_pred.squeeze()
 
-        # return y_pred
+        return y_pred, loss_pe
 
-        # mean of (num_nodes, num_tasks) -> 1
-        loss_batch_mean = self.loss_batch(y_pred.float(), y.float())
+        # # mean of (num_nodes, num_tasks) -> 1
+        # loss_batch_mean = self.loss_batch(y_pred.float(), y.float())
 
-        # (num_nodes, num_tasks)
-        loss_tasks = self.loss_tasks(y_pred.float(), y.float())
+        # # (num_nodes, num_tasks)
+        # loss_tasks = self.loss_tasks(y_pred.float(), y.float())
 
-        loss_pe = self.loss_pe(pe_repr_feat, adj_mat, batch_index)
+        # # loss_pe = self.loss_pe(pe_repr_feat, adj_mat, batch_index)
 
-        # (num_tasks, 1)
-        if len(loss_tasks.shape) > 1:
-            loss_tasks = torch.mean(loss_tasks, dim=-1)
-        else:
-            loss_tasks = torch.mean(loss_tasks)
-        # loss_tasks_batch = loss_tasks_batch.mean()
-        # loss_pe = loss_pe / batch_size
+        # # (num_tasks, 1)
+        # if len(loss_tasks.shape) > 1:
+        #     loss_tasks = torch.mean(loss_tasks, dim=-1)
+        # else:
+        #     loss_tasks = torch.mean(loss_tasks)
+        # # loss_tasks_batch = loss_tasks_batch.mean()
+        # # loss_pe = loss_pe / batch_size
 
-        # loss_batch_train = self.loss_batch_train(loss_tasks)#, iteration)
+        # # loss_batch_train = self.loss_batch_train(loss_tasks)#, iteration)
         
-        # sum of (num_tasks, 1) -> 1
-        loss_batch_train = torch.sum(loss_tasks)
+        # # sum of (num_tasks, 1) -> 1
+        # loss_batch_sum = torch.sum(loss_tasks)
 
-        print(loss_tasks, loss_batch_train, loss_batch_mean, loss_pe)
+        # print(loss_tasks, loss_batch_sum, loss_batch_mean, loss_pe)
 
-        loss_train_with_pe = loss_batch_train + self.alpha_loss * loss_pe
+        # loss_train_with_pe = loss_batch_sum + self.alpha_loss * loss_pe
 
-        return loss_train_with_pe, loss_batch_train, loss_batch_mean, loss_tasks
+        # return loss_train_with_pe, loss_batch_sum, loss_batch_mean, loss_tasks
 
 
 
