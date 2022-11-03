@@ -24,6 +24,30 @@ from CustomGeoGNN.model import PredModel
 
 MEAN = None
 STD = None
+MIN = None
+MAX = None
+
+HAR2EV = 27.211386246
+KCALMOL2EV = 0.04336414
+
+qm9_conversion = {
+    'mu': 1.,
+    'alpha': 1.,
+    'homo': HAR2EV,
+    'lumo': HAR2EV,
+    'gap': HAR2EV,
+    'r2': 1.,
+    'zpve': HAR2EV,
+    'u0': HAR2EV,
+    'u298': HAR2EV,
+    'h298': HAR2EV,
+    'g298': HAR2EV,
+    'cv': 1.,
+    'u0_atom': KCALMOL2EV,
+    'u298_atom': KCALMOL2EV,
+    'h298_atom': KCALMOL2EV,
+    'g298_atom': KCALMOL2EV,
+}
 
 ROOT = os.getcwd()
 
@@ -60,13 +84,28 @@ def load_dataset(data_path: str, raw_data_path: str, dataset: str, tasks: list) 
     y_all = y_all[tasks]
     global MEAN
     global STD
-    MEAN = torch.tensor(y_all.mean().to_list()).view(-1, 1)
-    STD = torch.tensor(y_all.std(ddof=0).to_list()).view(-1, 1)
+    global MIN
+    global MAX
+    global qm9_conversion
+    MEAN = torch.tensor(y_all.mean().to_list()).view(-1, 1).cuda()
+    STD = torch.tensor(y_all.std(ddof=0).to_list()).view(-1, 1).cuda()
+    MIN = torch.tensor(y_all.min().to_list()).view(-1, 1).cuda()
+    MAX = torch.tensor(y_all.max().to_list()).view(-1, 1).cuda()
+
+    if dataset == 'qm9':
+        qm9_conversion = torch.tensor(list(map(qm9_conversion.get, tasks))).view(-1, 1).cuda()
+        MEAN = MEAN * qm9_conversion
+        STD = STD * qm9_conversion
+        MIN = MIN * qm9_conversion
+        MAX = MAX * qm9_conversion
 
     with open(train_path / 'train_data.pkl', 'rb') as f:
         graph_list_train = pickle.load(f)
     y_list_train = pd.read_csv(train_path / 'train_values.csv')
     y_list_train = y_list_train[tasks].to_numpy()
+
+    graph_list_train = graph_list_train[:20000]
+    y_list_train = y_list_train[:20000]
     
     with open(val_path / 'val_data.pkl', 'rb') as f:
         graph_list_val = pickle.load(f)
@@ -76,13 +115,23 @@ def load_dataset(data_path: str, raw_data_path: str, dataset: str, tasks: list) 
     return graph_list_train, y_list_train,\
            graph_list_val, y_list_val
 
-def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor, mode: str):
+def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor=None, mode: str='train'):
+    y_pred = y_pred.squeeze().cuda()
+    y = y.squeeze().cuda()
+    if loss_pe is not None:
+        loss_pe = loss_pe.cuda()
+
+    print(y_pred, y_pred.shape)
+    print(y, y.shape)
+
     if mode == 'train':
         # mean of (num_nodes, num_tasks) -> 1
         loss_batch_mean = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='mean')
+        # loss_batch_mean = F.mse_loss(y_pred.float(), y.float(), reduction='mean')
 
         # (num_nodes, num_tasks)
         loss_tasks = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='none')
+        # loss_tasks = F.mse_loss(y_pred.float(), y.float(), reduction='none')
 
         # (num_tasks, 1)
         if len(loss_tasks.shape) > 1:
@@ -91,11 +140,13 @@ def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor, mode: str
             loss_tasks = torch.mean(loss_tasks)
         
         # sum of (num_tasks, 1) -> 1
-        loss_batch_sum = torch.sum(loss_tasks)
+        # loss_batch_sum = torch.sum(loss_tasks)
+        loss_batch_sum = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='sum')
+        # loss_batch_sum = F.mse_loss(y_pred.float(), y.float(), reduction='sum')
 
         print(loss_tasks, loss_batch_sum, loss_batch_mean, loss_pe)
 
-        loss_train = loss_batch_sum + 0.7 * loss_pe
+        loss_train = loss_batch_sum + 0.1 * loss_pe
 
         return loss_train, loss_batch_sum, loss_batch_mean
     elif mode == 'test':
@@ -104,6 +155,12 @@ def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor, mode: str
 
         # (num_nodes, num_tasks)
         loss_tasks = F.l1_loss(y_pred.float(), y.float(), reduction='none')
+
+        # (num_tasks, 1)
+        if len(loss_tasks.shape) > 1:
+            loss_tasks = torch.mean(loss_tasks, dim=-1)
+        else:
+            loss_tasks = torch.mean(loss_tasks)
 
         print(loss_tasks, loss_batch_mean)
 
@@ -131,14 +188,13 @@ def train_one_epoch(epoch: int, model, batch_size: int, writer: SummaryWriter, d
         batch_graph_list = list(map(lambda i: graph_list_train[i], batch_train_idx))
         batch_y_list = y_list_train[batch_train_idx].T
         batch_y_list = torch.from_numpy(batch_y_list)
-        # batch_y_list = (batch_y_list - MEAN) / STD
         batch_y_list = batch_y_list.to(model.device)
+        batch_y_list = (batch_y_list - MEAN) / STD
+        # batch_y_list = (batch_y_list - MIN) / (MAX - MIN)
 
         optimizer.zero_grad()
         # with torch.cuda.amp.autocast():
         y_pred, loss_pe = model(batch_graph_list)
-        print(y_pred, y_pred.shape)
-        print(batch_y_list, batch_y_list.shape)
 
         batch_loss_train, batch_loss_sum, batch_loss_mean = loss(y_pred, batch_y_list, loss_pe, mode='train')
 
@@ -169,17 +225,20 @@ def validate_one_epoch(epoch: int, model, batch_size: int, writer: SummaryWriter
         for batch_idx in tqdm(range(num_val_batches), 'Validating'):
             batch_graph_list = []
             batch_y_list = []
-            batch_val_idx = np.arange(batch_size) + batch_idx
+            batch_val_idx = np.arange(batch_size) + batch_idx * batch_size
 
             batch_graph_list = list(map(lambda i: graph_list_val[int(i)], batch_val_idx))
             batch_y_list = y_list_val[batch_val_idx].T
             batch_y_list = torch.from_numpy(batch_y_list)
-            # batch_y_list = (batch_y_list - MEAN) / STD
             batch_y_list = batch_y_list.to(model.device)
+            batch_y_list = (batch_y_list - MEAN) / STD
+            # batch_y_list = (batch_y_list - MIN) / (MAX - MIN)
 
-            y_pred, loss_pe = model(batch_graph_list)
+            y_pred, _ = model(batch_graph_list)
 
-            batch_loss_mean, _ = loss(y_pred, batch_y_list, loss_pe, mode='test')
+            batch_loss_mean, _ = loss(y_pred * STD, batch_y_list * STD, mode='test')
+            # batch_loss_mean, _ = loss(y_pred * (MAX - MIN), batch_y_list * (MAX - MIN), mode='test')
+            # batch_loss_mean, _ = loss(y_pred, batch_y_list, mode='test')
 
             writer.add_scalar('validate_loss', batch_loss_mean, epoch * num_val_batches + batch_idx + 1)
 

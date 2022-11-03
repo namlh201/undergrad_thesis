@@ -3,7 +3,7 @@ from __future__ import annotations
 # from typing import Optional
 import torch
 from torch import Tensor
-from torch.nn import Dropout, Module, ModuleList, Sequential, ReLU, GELU, SmoothL1Loss, MSELoss
+from torch.nn import Dropout, Module, ModuleList, Sequential, ReLU, GELU, LeakyReLU
 from torch_geometric.nn import global_mean_pool, global_add_pool, Linear
 from tqdm import tqdm
 
@@ -206,19 +206,19 @@ class PredModel(Module):
 
         for _ in range(self.num_tasks):
             mlp = Sequential(
-                Linear(self.embed_dim, self.hidden_dim, weight_initializer='glorot'),
-                ReLU(),
+                Linear(self.embed_dim, self.hidden_dim),
+                LeakyReLU(),
                 Dropout(p=self.dropout_rate),
                 # Linear(128, 256, weight_initializer='glorot'),
                 # GELU(),
                 # Dropout(p=self.dropout_rate),
-                Linear(self.hidden_dim, self.hidden_dim, weight_initializer='glorot'),
-                ReLU(),
+                Linear(self.hidden_dim, self.hidden_dim),
+                LeakyReLU(),
                 Dropout(p=self.dropout_rate),
                 # Linear(256, 128, weight_initializer='glorot'),
                 # GELU(),
                 # Dropout(p=self.dropout_rate),
-                Linear(self.hidden_dim, 1, weight_initializer='glorot')
+                Linear(self.hidden_dim, 1)
             )
 
             self.tasks_mlp.append(mlp)
@@ -226,8 +226,8 @@ class PredModel(Module):
         # self.loss_batch_train = UncertaintyLoss(self.num_tasks)
         # self.loss_batch_train = DynamicWeightAverageLoss(self.num_tasks)
         
-        self.loss_batch = StdSmoothL1Loss()
-        self.loss_tasks = StdSmoothL1Loss(reduction='none')
+        # self.loss_batch = StdSmoothL1Loss()
+        # self.loss_tasks = StdSmoothL1Loss(reduction='none')
         
         # self.loss_batch = SmoothL1Loss()
         # self.loss_tasks = SmoothL1Loss(reduction='none')
@@ -273,7 +273,7 @@ class PredModel(Module):
 
         graph_repr_feat = graph_repr_feat.squeeze()
 
-        # print(graph_repr_feat, graph_repr_feat.shape)
+        print(graph_repr_feat, graph_repr_feat.shape)
 
         # print(graph_repr)
         y_pred = []
@@ -281,9 +281,9 @@ class PredModel(Module):
         for task_mlp in self.tasks_mlp:
             y_pred.append(task_mlp(graph_repr_feat).squeeze(1))
 
-        # for name, param in self.tasks_mlp.named_parameters():
-        #     if param.requires_grad:
-        #         print(name, param.data, param.data.shape)
+        for name, param in self.tasks_mlp.named_parameters():
+            if param.requires_grad:
+                print(name, param.data, param.data.shape)
 
         y_pred = torch.stack(y_pred)
         y_pred = y_pred.squeeze()

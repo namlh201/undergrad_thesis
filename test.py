@@ -17,6 +17,31 @@ from tqdm import tqdm
 
 from CustomGeoGNN.model import PredModel
 
+MEAN = None
+STD = None
+
+HAR2EV = 27.211386246
+KCALMOL2EV = 0.04336414
+
+qm9_conversion = {
+    'mu': 1.,
+    'alpha': 1.,
+    'homo': HAR2EV,
+    'lumo': HAR2EV,
+    'gap': HAR2EV,
+    'r2': 1.,
+    'zpve': HAR2EV,
+    'u0': HAR2EV,
+    'u298': HAR2EV,
+    'h298': HAR2EV,
+    'g298': HAR2EV,
+    'cv': 1.,
+    'u0_atom': KCALMOL2EV,
+    'u298_atom': KCALMOL2EV,
+    'h298_atom': KCALMOL2EV,
+    'g298_atom': KCALMOL2EV,
+}
+
 ROOT = os.getcwd()
 
 def load_tasks(tasks_path: str) -> dict:
@@ -43,15 +68,29 @@ def print_config(config: dict):
     for key in config:
         print(f'[GeoGNNModel] {key}: {config[key]}')
 
-def load_dataset(data_path: str, dataset: str, tasks: list) -> tuple[list, np.ndarray]:
+def load_dataset(data_path: str, raw_data_path: str, dataset: str, tasks: list) -> tuple[list, np.ndarray]:
     test_path = Path(os.path.join(ROOT, data_path, dataset, 'test'))
 
-    # y_list_test = []
+    y_path = os.path.join(ROOT, raw_data_path, dataset, f'{dataset}.sdf.csv')
+    y_all = pd.read_csv(y_path)
+    y_all = y_all[tasks]
+    global MEAN
+    global STD
+    global qm9_conversion
+    MEAN = torch.tensor(y_all.mean().to_list()).view(-1, 1).cuda()
+    STD = torch.tensor(y_all.std(ddof=0).to_list()).view(-1, 1).cuda()
+
+    if dataset == 'qm9':
+        qm9_conversion = torch.tensor(list(map(qm9_conversion.get, tasks))).view(-1, 1).cuda()
+        MEAN = MEAN * qm9_conversion
+        STD = STD * qm9_conversion
+
+    print(MEAN)
+    print(STD)
+
     with open(test_path / 'test_data.pkl', 'rb') as f:
         graph_list_test = pickle.load(f)
-    # for task in tasks:
-    #     with open(test_path / f'test_values_{task}.pkl', 'rb') as f:
-    #         y_list_test.append(pickle.load(f))
+
     y_list_test = pd.read_csv(test_path / 'test_values.csv')
     y_list_test = y_list_test[tasks]
     y_list_test = y_list_test.to_numpy()
@@ -82,10 +121,18 @@ def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor=None, mode
         return loss_train, loss_batch_sum, loss_batch_mean
     elif mode == 'test':
         # mean of (num_nodes, num_tasks) -> 1
+        # loss_batch_mean = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='mean')
         loss_batch_mean = F.l1_loss(y_pred.float(), y.float(), reduction='mean')
 
         # (num_nodes, num_tasks)
+        # loss_tasks = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='none')
         loss_tasks = F.l1_loss(y_pred.float(), y.float(), reduction='none')
+
+        # (num_tasks, 1)
+        if len(loss_tasks.shape) > 1:
+            loss_tasks = torch.mean(loss_tasks, dim=-1)
+        else:
+            loss_tasks = torch.mean(loss_tasks)
 
         print(loss_tasks, loss_batch_mean)
 
@@ -111,14 +158,12 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
     for batch_idx in tqdm(range(num_test_batches), 'Testing'):
         batch_graph_list = []
         batch_y_list = []
-        batch_test_idx = np.arange(batch_size) + batch_idx
+        batch_test_idx = np.arange(batch_size) + batch_idx * batch_size
 
         batch_graph_list = list(map(lambda i: graph_list_test[int(i)], batch_test_idx))
         batch_y_list = y_list_test[batch_test_idx].T
-
-        # for i in batch_test_idx:
-        #     batch_graph_list.append(graph_list_test[int(i)])
-        #     batch_y_list.append(y_list_test[int(i)])
+        batch_y_list = torch.from_numpy(batch_y_list)
+        batch_y_list = batch_y_list.to(model.device)
 
         y_pred, _ = model(batch_graph_list)
         batch_loss_mean, batch_loss_tasks = loss(y_pred, batch_y_list, mode='test')
@@ -136,7 +181,7 @@ def test(model, config: dict, data: tuple[list, np.ndarray]):
 def main(args):
     model_path = Path(os.path.join(ROOT, 'model'))
     model_path = model_path / args.dataset / 'all_tasks'
-    MODEL_NAME = 'best_model_20221022_102140_b64_eb32_l8_rmean_e3'
+    MODEL_NAME = 'curr_best_model_20221026_151437_b64_eb32_l8_rmean_e10'
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -145,11 +190,11 @@ def main(args):
     model = PredModel(config).to(device)
     model.load_state_dict(torch.load(model_path / f'{MODEL_NAME}.pth'))
 
-    graph_list_test, y_list_test = load_dataset(args.data_path, args.dataset, config['tasks'])
+    graph_list_test, y_list_test = load_dataset(args.data_path, args.raw_data_path, args.dataset, config['tasks'])
 
     test_loss_tasks = test(model, config, (graph_list_test, y_list_test))
 
-    for task, loss in zip(TASKS[args.dataset], test_loss_tasks):
+    for task, loss in zip(config['tasks'], test_loss_tasks):
         print(f'Loss {task} = {loss}')
 
 if __name__ == '__main__':
@@ -157,7 +202,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9', 'qm9_norm'], help='Name of Dataset')
     # parser.add_argument('--task', type=str, help='Name of Task')
-    # parser.add_argument('--raw_data_path', type=str, default='raw_data', help='Raw data path')
+    parser.add_argument('--raw_data_path', type=str, default='raw_data', help='Raw data path')
     parser.add_argument('--data_path', type=str, default='dataset', help='Data path')
     parser.add_argument('--config', type=str, default='qm7_test_config.json', help='Model config')
 
