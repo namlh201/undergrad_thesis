@@ -5,16 +5,18 @@ import torch
 from torch import Tensor
 from torch.nn import Dropout, Module, ModuleList, Sequential, ReLU, GELU, LeakyReLU
 from torch_geometric.nn import global_mean_pool, global_add_pool, Linear
-from tqdm import tqdm
+from torch_geometric.nn.aggr import Set2Set
+from torch_geometric.nn.models import MLP
+# from tqdm import tqdm
 
 from .embed import GraphPairEmbeddingBatch
 from .module.block import GeoGNNBlock, TransformerBlock
-from .module.loss_fn import LaplacianEigenvectorLoss, DynamicWeightAverageLoss, UncertaintyLoss, StdSmoothL1Loss, laplacian_eigenvector_loss
+# from .module.loss_fn import LaplacianEigenvectorLoss, DynamicWeightAverageLoss, UncertaintyLoss, StdSmoothL1Loss, laplacian_eigenvector_loss
 from .module.utils import UnitNorm
 from .utils.graph_utils import GraphUtils
 
 class GeoGNNModel(Module):
-    def __init__(self, config={}):
+    def __init__(self, config: dict, dataset: str):
         super(GeoGNNModel, self).__init__()
 
         self.embed_dim = config['model']['embed_dim']
@@ -22,6 +24,7 @@ class GeoGNNModel(Module):
         self.layer_num = config['model']['layer_num']
         self.readout = config['model']['readout']
         self.batch_size = config['model']['batch_size']
+        self.tf_layer_num = config['model']['tf_layer_num']
 
         self.walk_length = config['pe']['walk_length']
         self.lambda_loss = config['pe']['lambda']
@@ -58,17 +61,20 @@ class GeoGNNModel(Module):
                 )
             )
 
-        self.transformer_block = TransformerBlock(self.embed_dim, num_layers=2, heads=4, dropout_rate=self.dropout_rate)
+        self.transformer_block = TransformerBlock(self.embed_dim, num_layers=self.tf_layer_num, heads=4, dropout_rate=self.dropout_rate)
 
-        self.pe_out = Sequential(
-            Linear(self.embed_dim, self.walk_length, weight_initializer='glorot'),
-            UnitNorm(dim=0) # normalize
-        )
+        if dataset in ['qm7', 'qm8']:
+            self.pe_out = Sequential(
+                Linear(self.embed_dim, self.walk_length, weight_initializer='glorot'),
+                UnitNorm(dim=0) # normalize
+            )
 
         if self.readout == 'mean':
             self.graph_pool = global_mean_pool
         elif self.readout == 'sum':
             self.graph_pool = global_add_pool
+        elif self.readout == 'set2set':
+            self.graph_pool = Set2Set(self.embed_dim, processing_steps=3)
 
     @property
     def device(self):
@@ -90,7 +96,7 @@ class GeoGNNModel(Module):
 
         node_hidden_list = []
         edge_hidden_list = []
-        pe_hidden_list = []
+        # pe_hidden_list = []
 
         # print('pe_ab', pe_ab)
 
@@ -100,11 +106,11 @@ class GeoGNNModel(Module):
             # print('bond_edge_index', bond_edge_index, bond_edge_index.shape, bond_edge_index.max())
             # print('atom_node_hidden_feat', atom_node_hidden_feat, atom_node_hidden_feat.shape, atom_node_hidden_feat.size(0))
             # print('pe_ab', pe_ab, pe_ab.shape, pe_ab.size(0))
-            atom_node_hidden_feat, pe_ab = self.atom_bond_block_list[layer_idx](
+            atom_node_hidden_feat = self.atom_bond_block_list[layer_idx](
                 x=atom_node_hidden_feat,
                 edge_index=bond_edge_index,
                 edge_attr=bond_edge_hidden_feat,
-                pe=pe_ab
+                # pe=pe_ab
             )
             # print(pe_ab)
 
@@ -120,7 +126,7 @@ class GeoGNNModel(Module):
 
             node_hidden_list.append(atom_node_hidden_feat)
             edge_hidden_list.append(bond_node_hidden_feat)
-            pe_hidden_list.append(pe_ab)
+            # pe_hidden_list.append(pe_ab)
             
             # print(bond_node_hidden_feat)
 
@@ -136,18 +142,19 @@ class GeoGNNModel(Module):
 
         node_repr_feat = node_hidden_list[-1]
         edge_repr_feat = edge_hidden_list[-1]
-        pe_repr_feat = pe_hidden_list[-1]
+        # pe_repr_feat = pe_hidden_list[-1]
 
-        node_feat = self.transformer_block(node_repr_feat, pe_repr_feat, bond_edge_index)
-        pe_repr_feat = self.pe_out(pe_repr_feat)
+        # node_feat = self.transformer_block(node_repr_feat, pe_repr_feat, bond_edge_index)
+        node_feat = self.transformer_block(node_repr_feat, None, bond_edge_index)
+        # pe_repr_feat = self.pe_out(pe_repr_feat)
 
-        loss_pe = laplacian_eigenvector_loss(pe_repr_feat, adj_mat_ab, batch_index_ab, self.lambda_loss)
+        # loss_pe = laplacian_eigenvector_loss(pe_repr_feat, adj_mat_ab, batch_index_ab, self.lambda_loss)
 
         # node_feat = node_repr_feat
 
-        if node_feat.size(0) < node_repr_feat.size(0):
-            node_feat = torch.cat((node_feat.T, torch.mean(node_feat, dim=0, keepdim=True)), dim=1).T
-        node_feat = node_repr_feat + node_feat
+        # if node_feat.size(0) < node_repr_feat.size(0):
+        #     node_feat = torch.cat((node_feat.T, torch.mean(node_feat, dim=0, keepdim=True)), dim=1).T
+        # node_feat = node_repr_feat + node_feat
         # print(node_feat)
         # print(pe_repr_feat)
 
@@ -173,16 +180,18 @@ class GeoGNNModel(Module):
 
         # (num_atoms, embed_dim), (num_bonds, embed_dim), (1, embed_dim)
         # return node_repr_feat, edge_repr_feat, graph_repr_feat, pe_repr_feat
-        return graph_repr_feat, loss_pe
+        # return graph_repr_feat, loss_pe
+        return graph_repr_feat, None
 
 class PredModel(Module):
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, dataset: str):
         super(PredModel, self).__init__()
         # self.config = config
 
         self.embed_dim = config['model']['embed_dim']
         self.hidden_dim = config['model']['hidden_dim']
         self.dropout_rate = config['model']['dropout_rate']
+        self.readout = config['model']['readout']
 
         self.lambda_loss = config['pe']['lambda']
         self.alpha_loss = config['pe']['alpha']
@@ -200,28 +209,37 @@ class PredModel(Module):
         # self.mol = mol
         # self.atom_bond_graph = atom_bond_graph
         # self.bond_angle_graph = bond_angle_graph
-        self.encoder = GeoGNNModel(config)
+        self.encoder = GeoGNNModel(config, dataset)
 
         self.tasks_mlp = ModuleList()
 
-        for _ in range(self.num_tasks):
-            mlp = Sequential(
-                Linear(self.embed_dim, self.hidden_dim),
-                LeakyReLU(),
-                Dropout(p=self.dropout_rate),
-                # Linear(128, 256, weight_initializer='glorot'),
-                # GELU(),
-                # Dropout(p=self.dropout_rate),
-                Linear(self.hidden_dim, self.hidden_dim),
-                LeakyReLU(),
-                Dropout(p=self.dropout_rate),
-                # Linear(256, 128, weight_initializer='glorot'),
-                # GELU(),
-                # Dropout(p=self.dropout_rate),
-                Linear(self.hidden_dim, 1)
-            )
-
-            self.tasks_mlp.append(mlp)
+        if dataset in ['lipophilicity']:
+            for _ in range(self.num_tasks):
+                mlp = MLP(in_channels=self.embed_dim * 2 if self.readout == 'set2set' else self.embed_dim,
+                          hidden_channels=self.hidden_dim,
+                          out_channels=1,
+                          num_layers=3,
+                          act=LeakyReLU(),
+                          dropout=self.dropout_rate)
+                self.tasks_mlp.append(mlp)
+        else:
+            for _ in range(self.num_tasks):
+                mlp = Sequential(
+                    Linear(self.embed_dim * 2 if self.readout == 'set2set' else self.embed_dim, self.hidden_dim),
+                    LeakyReLU(),
+                    Dropout(p=self.dropout_rate),
+                    # Linear(128, 256, weight_initializer='glorot'),
+                    # GELU(),
+                    # Dropout(p=self.dropout_rate),
+                    Linear(self.hidden_dim, self.hidden_dim),
+                    LeakyReLU(),
+                    Dropout(p=self.dropout_rate),
+                    # Linear(256, 128, weight_initializer='glorot'),
+                    # GELU(),
+                    # Dropout(p=self.dropout_rate),
+                    Linear(self.hidden_dim, 1)
+                )
+                self.tasks_mlp.append(mlp)
 
         # self.loss_batch_train = UncertaintyLoss(self.num_tasks)
         # self.loss_batch_train = DynamicWeightAverageLoss(self.num_tasks)
@@ -273,7 +291,7 @@ class PredModel(Module):
 
         graph_repr_feat = graph_repr_feat.squeeze()
 
-        print(graph_repr_feat, graph_repr_feat.shape)
+        # print(graph_repr_feat, graph_repr_feat.shape)
 
         # print(graph_repr)
         y_pred = []
@@ -281,9 +299,9 @@ class PredModel(Module):
         for task_mlp in self.tasks_mlp:
             y_pred.append(task_mlp(graph_repr_feat).squeeze(1))
 
-        for name, param in self.tasks_mlp.named_parameters():
-            if param.requires_grad:
-                print(name, param.data, param.data.shape)
+        # for name, param in self.tasks_mlp.named_parameters():
+        #     if param.requires_grad:
+        #         print(name, param.data, param.data.shape)
 
         y_pred = torch.stack(y_pred)
         y_pred = y_pred.squeeze()

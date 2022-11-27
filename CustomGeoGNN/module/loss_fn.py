@@ -7,6 +7,18 @@ from torch.nn import functional as F
 from torch.nn.parameter import Parameter
 from torch.linalg import norm
 
+# def rmse_loss(input: Tensor, target: Tensor, reduction: str='mean', eps: float=1e-8) -> Tensor:
+#     return torch.sqrt(F.mse_loss(input, target, reduction=reduction) + eps)
+
+def rmse_loss(input: Tensor, target: Tensor, reduction: str='mean', eps: float=1e-8) -> Tensor:
+    loss = torch.sqrt(F.mse_loss(input, target, reduction='sum') + eps)
+    if reduction == 'sum':
+        return loss
+    elif reduction == 'mean':
+        return loss / len(input)
+    elif reduction == 'none':
+        return torch.sqrt(F.mse_loss(input, target, reduction='none') + eps)
+
 def laplacian_eigenvector_loss(pe: Tensor, adj_mat: Tensor, batch_index: Tensor, lambda_loss: float) -> Tensor:
     '''
         Loss fn for positional encoding
@@ -170,6 +182,19 @@ class StdSmoothL1Loss(Module):
                 return torch.mean(loss / std)
             elif self.reduction == 'sum':
                 return torch.sum(loss / std)
+
+def uncertainty_loss(loss: Tensor, log_sigma: Tensor):
+    print('log_sigma', log_sigma)
+
+    loss = loss.squeeze()
+
+    if len(loss) == 1:
+        return torch.mean(loss)
+
+    loss_l = 0.5 * loss / torch.exp(log_sigma) ** 2
+    loss_r = torch.log(1 + torch.exp(log_sigma) ** 2)
+
+    return torch.sum(loss_l + loss_r)
 
 class UncertaintyLoss(Module):
     '''

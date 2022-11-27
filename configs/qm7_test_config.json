@@ -15,7 +15,8 @@
         "dropout_rate": 0.2,
         "layer_num": 8,
         "readout": "mean",
-        "batch_size": 64
+        "batch_size": 64,
+        "tf_layer_num": 2
     },
 
     "pe": {

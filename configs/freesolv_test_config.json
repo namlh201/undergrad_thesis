@@ -7,9 +7,7 @@
     "bond_float_names": ["bond_length"],
     "bond_angle_float_names": ["bond_angle"],
 
-    "tasks": ["mu", "alpha", "homo", "lumo",
-              "gap", "r2", "zpve", "u0",
-              "u298", "h298", "g298", "cv"],
+    "tasks": ["energy"],
 
     "model": {
         "embed_dim": 32,
@@ -23,6 +21,6 @@
     "pe": {
         "walk_length": 5,
         "lambda": 0.7,
-        "alpha": 0.5
+        "alpha": 2
     }
 }

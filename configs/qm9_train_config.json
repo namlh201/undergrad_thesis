@@ -8,8 +8,8 @@
     "bond_angle_float_names": ["bond_angle"],
 
     "tasks": ["mu", "alpha", "homo", "lumo",
-              "gap", "r2", "zpve", "u0",
-              "u298", "h298", "g298", "cv"],
+              "gap", "r2", "zpve", "u0_atom",
+              "u298_atom", "h298_atom", "g298_atom", "cv"],
 
     "epochs": 10,
 
@@ -17,16 +17,16 @@
         "embed_dim": 32,
         "hidden_dim": 256,
         "dropout_rate": 0.2,
-        "layer_num": 6,
+        "layer_num": 8,
         "readout": "mean",
         "batch_size": 64
     },
     
     "optim": {
-        "lr": 1e-3,
+        "lr": 1e-1,
         "weight_decay": 5e-5,
         "base_lr": 1e-3,
-        "max_lr": 1e-1
+        "max_lr": 5e-1
     },
 
     "pe": {

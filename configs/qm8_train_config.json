@@ -12,7 +12,7 @@
               "E1-PBE0-def2TZVP", "E2-PBE0-def2TZVP", "f1-PBE0-def2TZVP", "f2-PBE0-def2TZVP",
               "E1-CAM", "E2-CAM", "f1-CAM", "f2-CAM"],
 
-    "epochs": 10,
+    "epochs": 20,
 
     "model": {
         "embed_dim": 32,
@@ -24,9 +24,9 @@
     },
     
     "optim": {
-        "lr": 10e-3,
+        "lr": 1e-4,
         "weight_decay": 5e-4,
-        "base_lr": 10e-3,
+        "base_lr": 1e-4,
         "max_lr": 0.1
     },
 

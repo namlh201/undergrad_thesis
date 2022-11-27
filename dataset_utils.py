@@ -12,21 +12,21 @@ import sys
 
 from numpy.testing import assert_almost_equal
 from pandas import concat, read_csv, DataFrame
-from tqdm import tqdm
-from rdkit.Chem import Mol
-from rdkit.Chem.rdmolfiles import MolToSmiles, SDMolSupplier
+from tqdm.auto import tqdm
+from rdkit.Chem import Mol, AllChem, AddHs
+from rdkit.Chem.rdmolfiles import MolToSmiles, SDMolSupplier, MolFromSmiles
 
 from CustomGeoGNN.classes import AtomBondGraphFromMol, BondAngleGraphFromMol
 from CustomGeoGNN.utils.split import ScaffoldSplit
 
-HAR2EV = 27.211386246
-KCALMOL2EV = 0.04336414
+# HAR2EV = 27.211386246
+# KCALMOL2EV = 0.04336414
 
-qm9_conversion = [
-    1., 1., 1., 1., 1., HAR2EV, HAR2EV, HAR2EV, 1.,
-    HAR2EV, HAR2EV, HAR2EV, HAR2EV, HAR2EV,
-    1., KCALMOL2EV, KCALMOL2EV, KCALMOL2EV, KCALMOL2EV,
-]
+# qm9_conversion = [
+#     1., 1., 1., 1., 1., HAR2EV, HAR2EV, HAR2EV, 1.,
+#     HAR2EV, HAR2EV, HAR2EV, HAR2EV, HAR2EV,
+#     1., KCALMOL2EV, KCALMOL2EV, KCALMOL2EV, KCALMOL2EV,
+# ]
 
 ROOT = os.getcwd()
 
@@ -111,18 +111,71 @@ def molecule_to_graph(mol: Mol) -> tuple[AtomBondGraphFromMol, BondAngleGraphFro
     bond_angle_graph = BondAngleGraphFromMol(mol)
     return atom_bond_graph, bond_angle_graph
 
-def read_dataset(data_path: str, dataset: str, normalize: bool) -> tuple[list, DataFrame]:
-    mol_path = os.path.join(ROOT, data_path, dataset, f'{dataset}.sdf')
-    y_path = os.path.join(ROOT, data_path, dataset, f'{dataset}.sdf.csv')
+def smiles_to_mol(smiles: str) -> Mol:
+    mol = MolFromSmiles(smiles, sanitize=True)
+    mol = AddHs(mol)
 
-    mol_list = SDMolSupplier(mol_path, removeHs=False)
-    y_list = read_csv(y_path)
+    AllChem.EmbedMolecule(mol)
+    AllChem.MMFFOptimizeMolecule(mol, maxIters=10000000)
 
-    if dataset == 'qm9':
-        y_list = y_list[y_list.columns[1:]] * qm9_conversion
+    return mol
 
-    # Get the values only
-    y_list = y_list[TASKS[dataset]]
+def read_dataset(raw_data_path: str, dataset: str, normalize: bool) -> tuple[list, DataFrame]:
+    if dataset in ['qm7', 'qm8', 'qm9']:
+        mol_path = os.path.join(ROOT, raw_data_path, dataset, f'{dataset}.sdf')
+        y_path = os.path.join(ROOT, raw_data_path, dataset, f'{dataset}.sdf.csv')
+
+        mol_list = SDMolSupplier(mol_path, removeHs=False)
+        y_list = read_csv(y_path)
+        if dataset == 'qm9':
+            HAR2EV = 27.211386246
+            KCALMOL2EV = 0.04336414
+
+            qm9_conversion = [
+                1., 1., 1., 1., 1., HAR2EV, HAR2EV, HAR2EV, 1.,
+                HAR2EV, HAR2EV, HAR2EV, HAR2EV, HAR2EV,
+                1., KCALMOL2EV, KCALMOL2EV, KCALMOL2EV, KCALMOL2EV,
+            ]
+
+            y_list = y_list[y_list.columns[1:]] * qm9_conversion
+
+        # Get the values only
+        y_list = y_list[TASKS[dataset]]
+    elif dataset == 'esol':
+        path = os.path.join(ROOT, raw_data_path, dataset, 'delaney-processed.csv')
+        df = read_csv(path)
+
+        smiles_list = df['smiles'].to_list()
+        mol_list = list(map(smiles_to_mol, smiles_list))
+
+        y_list = df[df.columns[-2]]
+        y_list.columns = 'log_solubitity'
+    elif dataset == 'freesolv':
+        path = os.path.join(ROOT, raw_data_path, dataset, 'SAMPL.csv')
+        df = read_csv(path)
+
+        smiles_list = df['smiles'].to_list()
+        mol_list = list(map(smiles_to_mol, smiles_list))
+
+        y_list = df['expt']
+        y_list.columns = 'energy'
+    elif dataset == 'lipophilicity':
+        path = os.path.join(ROOT, raw_data_path, dataset, 'Lipophilicity.csv')
+        df = read_csv(path)
+
+        failed_idx = []
+        smiles_list = df['smiles'].to_list()
+        mol_list = []
+        for i, smiles in enumerate(smiles_list):
+            try:
+                mol = smiles_to_mol(smiles)
+                mol_list.append(mol)
+            except Exception as e:
+                failed_idx.append(i)
+
+        y_list = df['exp']
+        y_list.drop(failed_idx)
+        y_list.columns = 'logD'
 
     if normalize:
         y_list = (y_list - y_list.mean()) / y_list.std()
@@ -151,31 +204,19 @@ def save_splitted_dataset(dataset: str, normalize: bool, *args):
 
     with open(train_path / 'train_data.pkl', 'wb') as f:
         pickle.dump(graph_list_train, f)
-    # for task in TASKS[dataset]:
-    #     with open(train_path / f'train_values_{task}.pkl', 'wb') as f:
-    #         # try:
-    #         pickle.dump(y_list_train[task].to_list(), f)
-            # except Exception as e:
-            #     print(y_list_train[task])
     y_list_train.to_csv(train_path / 'train_values.csv')
 
     with open(val_path / 'val_data.pkl', 'wb') as f:
         pickle.dump(graph_list_val, f)
-    # for task in TASKS[dataset]:
-    #     with open(val_path / f'val_values_{task}.pkl', 'wb') as f:
-    #         pickle.dump(y_list_val[task].to_list(), f)
     y_list_val.to_csv(val_path / 'val_values.csv')
 
     with open(test_path / 'test_data.pkl', 'wb') as f:
         pickle.dump(graph_list_test, f)
-    # for task in TASKS[dataset]:
-    #     with open(test_path / f'test_values_{task}.pkl', 'wb') as f:
-    #         pickle.dump(y_list_test[task].to_list(), f)
     y_list_test.to_csv(test_path / 'test_values.csv')
 
 def main(args):
-    print(f'Reading dataset {args.dataset} at {args.data_path}', end=' ')
-    mol_list, y_list = read_dataset(args.data_path, args.dataset, args.normalize)
+    print(f'Reading dataset {args.dataset} at {args.raw_data_path}', end=' ')
+    mol_list, y_list = read_dataset(args.raw_data_path, args.dataset, args.normalize)
     print('[Done]')
 
     print(f'Cleaning dataset {args.dataset}', end=' ')
@@ -202,9 +243,9 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--job', type=str, default='split', help='Job')
-    parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9'], help='Name of Dataset')
+    parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9', 'esol', 'freesolv', 'lipophilicity'], help='Name of Dataset')
     # parser.add_argument('--task', type=str, help='Name of Task')
-    parser.add_argument('--data_path', type=str, default='raw_data', help='Data path')
+    parser.add_argument('--raw_data_path', type=str, default='raw_data', help='Data path')
     parser.add_argument('--train_size', type=float, default=0.8, help='Size of training set')
     parser.add_argument('--val_size', type=float, default=0.1, help='Size of validating set')
     parser.add_argument('--test_size', type=float, default=0.1, help='Size of testing set')

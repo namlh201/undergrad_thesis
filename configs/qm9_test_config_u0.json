@@ -7,9 +7,9 @@
     "bond_float_names": ["bond_length"],
     "bond_angle_float_names": ["bond_angle"],
 
-    "tasks": ["mu", "alpha", "homo", "lumo",
-              "gap", "r2", "zpve", "u0",
-              "u298", "h298", "g298", "cv"],
+    "tasks": ["u0_atom", "u298_atom", "h298_atom", "g298_atom"],
+
+    "epochs": 10,
 
     "model": {
         "embed_dim": 32,
@@ -19,10 +19,17 @@
         "readout": "mean",
         "batch_size": 64
     },
+    
+    "optim": {
+        "lr": 5e-4,
+        "weight_decay": 5e-5,
+        "base_lr": 5e-4,
+        "max_lr": 1e-1
+    },
 
     "pe": {
-        "walk_length": 5,
-        "lambda": 0.7,
-        "alpha": 0.5
+        "walk_length":5,
+        "lambda": 0.5,
+        "alpha": 0.1
     }
 }

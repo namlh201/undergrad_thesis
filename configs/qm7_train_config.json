@@ -21,9 +21,9 @@
     },
     
     "optim": {
-        "lr": 5e-5,
+        "lr": 5e-3,
         "weight_decay": 5e-4,
-        "base_lr": 5e-5,
+        "base_lr": 5e-3,
         "max_lr": 1e-2
     },
 

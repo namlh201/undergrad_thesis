@@ -7,29 +7,29 @@
     "bond_float_names": ["bond_length"],
     "bond_angle_float_names": ["bond_angle"],
 
-    "tasks": ["u0"],
+    "tasks": ["mu", "u0_atom", "u298_atom", "h298_atom", "g298_atom"],
 
     "epochs": 10,
 
     "model": {
         "embed_dim": 32,
-        "hidden_dim": 128,
+        "hidden_dim": 256,
         "dropout_rate": 0.2,
-        "layer_num": 6,
+        "layer_num": 8,
         "readout": "mean",
         "batch_size": 64
     },
     
     "optim": {
-        "lr": 1e-1,
-        "weight_decay": 5e-3,
-        "base_lr": 1e-1,
-        "max_lr": 5e-1
+        "lr": 1e-2,
+        "weight_decay": 5e-5,
+        "base_lr": 1e-4,
+        "max_lr": 1e-2
     },
 
     "pe": {
         "walk_length":5,
         "lambda": 0.5,
-        "alpha": 1.5
+        "alpha": 0.1
     }
 }
