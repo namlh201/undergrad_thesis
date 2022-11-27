@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 import json
 from pathlib import Path
 import pickle
+from typing import Callable
 
 # import traceback
 # import sys
@@ -21,6 +22,7 @@ from tqdm import tqdm
 import wandb
 
 from CustomGeoGNN.model import PredModel
+from CustomGeoGNN.module.loss_fn import uncertainty_loss, UncertaintyLoss, rmse_loss
 
 MEAN = None
 STD = None
@@ -79,14 +81,29 @@ def load_dataset(data_path: str, raw_data_path: str, dataset: str, tasks: list) 
     train_path = Path(os.path.join(ROOT, data_path, dataset, 'train'))
     val_path = Path(os.path.join(ROOT, data_path, dataset, 'val'))
 
-    y_path = os.path.join(ROOT, raw_data_path, dataset, f'{dataset}.sdf.csv')
-    y_all = pd.read_csv(y_path)
-    y_all = y_all[tasks]
     global MEAN
     global STD
     global MIN
     global MAX
     global qm9_conversion
+
+    if dataset in ['qm7', 'qm8', 'qm9']:
+        y_path = os.path.join(ROOT, raw_data_path, dataset, f'{dataset}.sdf.csv')
+        y_all = pd.read_csv(y_path)
+        y_all = y_all[tasks]
+    elif dataset == 'esol':
+        y_path = os.path.join(ROOT, raw_data_path, dataset, 'delaney-processed.csv')
+        y_all = pd.read_csv(y_path)
+        y_all = y_all[[y_all.columns[-2]]]
+    elif dataset == 'freesolv':
+        y_path = os.path.join(ROOT, raw_data_path, dataset, 'SAMPL.csv')
+        y_all = pd.read_csv(y_path)
+        y_all = y_all[['expt']]
+    elif dataset == 'lipophilicity':
+        y_path = os.path.join(ROOT, raw_data_path, dataset, 'Lipophilicity.csv')
+        y_all = pd.read_csv(y_path)
+        y_all = y_all[['exp']]
+    
     MEAN = torch.tensor(y_all.mean().to_list()).view(-1, 1).cuda()
     STD = torch.tensor(y_all.std(ddof=0).to_list()).view(-1, 1).cuda()
     MIN = torch.tensor(y_all.min().to_list()).view(-1, 1).cuda()
@@ -104,8 +121,8 @@ def load_dataset(data_path: str, raw_data_path: str, dataset: str, tasks: list) 
     y_list_train = pd.read_csv(train_path / 'train_values.csv')
     y_list_train = y_list_train[tasks].to_numpy()
 
-    graph_list_train = graph_list_train[:20000]
-    y_list_train = y_list_train[:20000]
+    # graph_list_train = graph_list_train[:20000]
+    # y_list_train = y_list_train[:20000]
     
     with open(val_path / 'val_data.pkl', 'rb') as f:
         graph_list_val = pickle.load(f)
@@ -115,23 +132,30 @@ def load_dataset(data_path: str, raw_data_path: str, dataset: str, tasks: list) 
     return graph_list_train, y_list_train,\
            graph_list_val, y_list_val
 
-def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor=None, mode: str='train'):
+def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_fn: Callable, mode: str='train'):
     y_pred = y_pred.squeeze().cuda()
     y = y.squeeze().cuda()
-    if loss_pe is not None:
-        loss_pe = loss_pe.cuda()
+    # if loss_pe is not None:
+    #     loss_pe = loss_pe.cuda()
 
-    print(y_pred, y_pred.shape)
-    print(y, y.shape)
+    # GAP = abs(HOMO - LUMO)
+    y_pred[2] = torch.abs(y_pred[0] - y_pred[1])
+
+    # print(y_pred, y_pred.shape)
+    # print(y, y.shape)
 
     if mode == 'train':
         # mean of (num_nodes, num_tasks) -> 1
-        loss_batch_mean = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='mean')
+        loss_batch_mean = loss_fn(y_pred.float(), y.float(), reduction='mean')
+        # loss_batch_mean = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='mean')
         # loss_batch_mean = F.mse_loss(y_pred.float(), y.float(), reduction='mean')
+        # loss_batch_mean = F.l1_loss(y_pred.float(), y.float(), reduction='mean')
 
         # (num_nodes, num_tasks)
-        loss_tasks = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='none')
+        loss_tasks = loss_fn(y_pred.float(), y.float(), reduction='none')
+        # loss_tasks = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='none')
         # loss_tasks = F.mse_loss(y_pred.float(), y.float(), reduction='none')
+        # loss_tasks = F.l1_loss(y_pred.float(), y.float(), reduction='none')
 
         # (num_tasks, 1)
         if len(loss_tasks.shape) > 1:
@@ -141,26 +165,34 @@ def loss(y_pred: torch.Tensor, y: torch.Tensor, loss_pe: torch.Tensor=None, mode
         
         # sum of (num_tasks, 1) -> 1
         # loss_batch_sum = torch.sum(loss_tasks)
-        loss_batch_sum = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='sum')
+        loss_batch_sum = loss_fn(y_pred.float(), y.float(), reduction='sum')
+        # loss_batch_sum = F.smooth_l1_loss(y_pred.float(), y.float(), reduction='sum')
         # loss_batch_sum = F.mse_loss(y_pred.float(), y.float(), reduction='sum')
+        # loss_batch_sum = F.l1_loss(y_pred.float(), y.float(), reduction='sum')
 
-        print(loss_tasks, loss_batch_sum, loss_batch_mean, loss_pe)
+        print(loss_tasks, loss_batch_sum, loss_batch_mean)#, loss_pe)
 
-        loss_train = loss_batch_sum + 0.1 * loss_pe
+        # return loss_batch_sum, loss_batch_mean, loss_tasks
 
-        return loss_train, loss_batch_sum, loss_batch_mean
+        # loss_train = loss_batch_sum + 0.1 * loss_pe
+        loss_train = loss_batch_mean
+
+        return loss_train, loss_batch_sum, loss_batch_mean, loss_tasks
     elif mode == 'test':
         # mean of (num_nodes, num_tasks) -> 1
-        loss_batch_mean = F.l1_loss(y_pred.float(), y.float(), reduction='mean')
+        loss_batch_mean = loss_fn(y_pred.float(), y.float(), reduction='mean')
+        # loss_batch_mean = F.l1_loss(y_pred.float(), y.float(), reduction='mean')
 
         # (num_nodes, num_tasks)
-        loss_tasks = F.l1_loss(y_pred.float(), y.float(), reduction='none')
+        loss_tasks = loss_fn(y_pred.float(), y.float(), reduction='none')
+        # loss_tasks = F.l1_loss(y_pred.float(), y.float(), reduction='none')
 
         # (num_tasks, 1)
         if len(loss_tasks.shape) > 1:
             loss_tasks = torch.mean(loss_tasks, dim=-1)
         else:
             loss_tasks = torch.mean(loss_tasks)
+            # loss_batch_mean = torch.min(loss_batch_mean, loss_tasks)
 
         print(loss_tasks, loss_batch_mean)
 
@@ -176,27 +208,32 @@ def train_one_epoch(epoch: int, model, batch_size: int, writer: SummaryWriter, d
     train_loss = 0.0
     num_train_batches = train_size // batch_size
 
-    batch_indices = np.arange(train_size)
-    np.random.shuffle(batch_indices)
+    # batch_indices = np.arange(train_size)
+    # np.random.shuffle(batch_indices)
 
     model.train()
     for batch_idx in tqdm(range(num_train_batches), desc='Training'):
         batch_graph_list = []
         batch_y_list = []
-        batch_train_idx = batch_indices[batch_size * batch_idx : batch_size * (batch_idx + 1)]
+        # batch_train_idx = batch_indices[batch_size * batch_idx : batch_size * (batch_idx + 1)]
+        batch_train_idx = np.arange(batch_size) + batch_idx * batch_size
 
         batch_graph_list = list(map(lambda i: graph_list_train[i], batch_train_idx))
         batch_y_list = y_list_train[batch_train_idx].T
         batch_y_list = torch.from_numpy(batch_y_list)
         batch_y_list = batch_y_list.to(model.device)
-        batch_y_list = (batch_y_list - MEAN) / STD
-        # batch_y_list = (batch_y_list - MIN) / (MAX - MIN)
+        # batch_y_list = (batch_y_list - MEAN) / STD # mean = 0, std = 1
+        # batch_y_list = (batch_y_list - MIN) / (MAX - MIN) # range [0, 1]
+        # batch_y_list = 2 * (batch_y_list - MIN) / (MAX - MIN) - 1 # range [-1, 1]
 
         optimizer.zero_grad()
         # with torch.cuda.amp.autocast():
-        y_pred, loss_pe = model(batch_graph_list)
+        y_pred, _ = model(batch_graph_list)
 
-        batch_loss_train, batch_loss_sum, batch_loss_mean = loss(y_pred, batch_y_list, loss_pe, mode='train')
+        batch_loss_train, batch_loss_sum, batch_loss_mean, _ = loss(y_pred, batch_y_list, loss_fn=F.smooth_l1_loss, mode='train')
+        # batch_loss_train, batch_loss_sum, batch_loss_mean, _ = loss(y_pred, batch_y_list, loss_pe, mode='train')
+
+        # batch_loss_train = ul(batch_loss_tasks) + 0.1 * loss_pe
 
         print(f'Batch #{batch_idx + 1} \t\t Train loss = {batch_loss_sum} \t\t Mean loss = {batch_loss_mean}')
 
@@ -206,7 +243,8 @@ def train_one_epoch(epoch: int, model, batch_size: int, writer: SummaryWriter, d
         scaler.step(optimizer)
         scaler.update()
         writer.add_scalar('learning_rate', optimizer.param_groups[0]["lr"], epoch * num_train_batches + batch_idx + 1)
-        lr_scheduler.step()
+        # lr_scheduler.step()
+        # lr_scheduler.step(batch_loss_mean)
 
         train_loss += batch_loss_mean.item()
     train_loss = train_loss / num_train_batches
@@ -231,14 +269,18 @@ def validate_one_epoch(epoch: int, model, batch_size: int, writer: SummaryWriter
             batch_y_list = y_list_val[batch_val_idx].T
             batch_y_list = torch.from_numpy(batch_y_list)
             batch_y_list = batch_y_list.to(model.device)
-            batch_y_list = (batch_y_list - MEAN) / STD
-            # batch_y_list = (batch_y_list - MIN) / (MAX - MIN)
+            # batch_y_list = (batch_y_list - MEAN) / STD                # mean = 0, std = 1
+            # batch_y_list = (batch_y_list - MIN) / (MAX - MIN)         # range [0, 1]
+            # batch_y_list = 2 * (batch_y_list - MIN) / (MAX - MIN) - 1   # range [-1, 1]
 
             y_pred, _ = model(batch_graph_list)
 
-            batch_loss_mean, _ = loss(y_pred * STD, batch_y_list * STD, mode='test')
-            # batch_loss_mean, _ = loss(y_pred * (MAX - MIN), batch_y_list * (MAX - MIN), mode='test')
-            # batch_loss_mean, _ = loss(y_pred, batch_y_list, mode='test')
+            # y_pred = (y_pred + 1) * (MAX - MIN) / 2                     # scale back
+            # batch_y_list = (batch_y_list + 1) * (MAX - MIN) / 2         # scale back
+
+            # batch_loss_mean, _ = loss(y_pred * STD, batch_y_list * STD, loss_fn=F.l1_loss, mode='test')
+            # batch_loss_mean, _ = loss(y_pred * (MAX - MIN), batch_y_list * (MAX - MIN), loss_fn=rmse_loss, mode='test')
+            batch_loss_mean, _ = loss(y_pred, batch_y_list, loss_fn=F.smooth_l1_loss, mode='test')
 
             writer.add_scalar('validate_loss', batch_loss_mean, epoch * num_val_batches + batch_idx + 1)
 
@@ -264,7 +306,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
 
     model_path = Path(os.path.join(ROOT, 'model'))
 
-    if len(tasks) == len(TASKS[dataset[:3]]):
+    if len(tasks) == len(TASKS[dataset]):
         model_path = model_path / dataset / 'all_tasks'
     else:
         model_path = model_path / dataset / '_'.join([task for task in tasks])
@@ -273,44 +315,12 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
 
     min_valid_loss = np.inf
 
+    # ul = UncertaintyLoss(len(tasks)).to(model.device)
+
     for epoch in range(epochs):
         print(f'Epoch #{epoch + 1}:')
 
         print('Training:')
-        # train_loss = 0.0
-        # num_train_batches = len(graph_list_train) // batch_size
-        # model.train()
-        # for batch_idx in tqdm(range(num_train_batches), desc='Training'):
-        #     batch_graph_list = []
-        #     batch_y_list = []
-        #     batch_train_idx = np.random.choice(len(graph_list_train), size=batch_size, replace=False)
-
-        #     batch_graph_list = list(map(lambda i: graph_list_train[i], batch_train_idx))
-        #     batch_y_list = y_list_train[batch_train_idx].T
-
-        #     # for i in batch_train_idx:
-        #     #     batch_graph_list.append(graph_list_train[int(i)])
-        #     #     batch_y_list.append(y_list_train[int(i)])
-
-        #     optimizer.zero_grad()
-        #     # with torch.cuda.amp.autocast():
-        #     batch_loss_train_with_pe, batch_loss_sum, batch_loss_mean, batch_loss_tasks = \
-        #         model(batch_graph_list, batch_y_list)
-
-        #     print(f'Batch #{batch_idx + 1} \t\t Train loss = {batch_loss_sum} \t\t Mean loss = {batch_loss_mean}')
-
-        #     writer.add_scalar('training_loss', batch_loss_mean, epoch * num_train_batches + batch_idx + 1)
-
-        #     scaler.scale(batch_loss_train_with_pe).backward()
-        #     scaler.step(optimizer)
-        #     scaler.update()
-        #     writer.add_scalar('learning_rate', optimizer.param_groups[0]["lr"], epoch * num_train_batches + batch_idx + 1)
-        #     lr_scheduler.step()
-
-        #     train_loss += batch_loss_mean.item()
-        # train_loss = train_loss / num_train_batches
-        # writer.add_scalar('training_loss', train_loss, epoch)
-
         train_loss = train_one_epoch(epoch, model, batch_size, writer,
                                      (graph_list_train, y_list_train),
                                      scaler, optimizer, lr_scheduler)
@@ -318,32 +328,10 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
         print('Training complete\n')
 
         print('Validating:')
-        # val_loss = 0.0
-        # num_val_batches = len(graph_list_val) // batch_size
-        # model.eval()
-        # for batch_idx in tqdm(range(num_val_batches), 'Validating'):
-        #     batch_graph_list = []
-        #     batch_y_list = []
-        #     # batch_val_idx = np.random.choice(len(graph_list_val), size=batch_size, replace=False)
-        #     batch_val_idx = np.arange(batch_size) + batch_idx
-
-        #     batch_graph_list = list(map(lambda i: graph_list_val[int(i)], batch_val_idx))
-        #     batch_y_list = y_list_val[batch_val_idx].T
-
-        #     # for i in batch_val_idx:
-        #     #     batch_graph_list.append(graph_list_val[int(i)])
-        #     #     batch_y_list.append(y_list_val[int(i)])
-
-        #     batch_loss_train_with_pe, batch_loss_sum, batch_loss_mean, batch_loss_tasks = model(batch_graph_list, batch_y_list)
-
-        #     writer.add_scalar('validate_loss', batch_loss_mean, epoch * num_val_batches + batch_idx + 1)
-
-        #     val_loss += batch_loss_mean.item()
-        # val_loss = val_loss / num_val_batches
-
         val_loss = validate_one_epoch(epoch, model, batch_size, writer,
                                       (graph_list_val, y_list_val))
         # writer.add_scalar('validate_loss', val_loss, epoch)
+        lr_scheduler.step(val_loss)
         print('Validating complete\n')
 
         wandb.log({
@@ -361,7 +349,7 @@ def train(model, config: dict, writer: SummaryWriter, data: tuple[list, np.ndarr
             now = now.strftime('%Y%m%d_%H%M%S')
 
             # Saving State Dict
-            torch.save(model.state_dict(), model_path / f'model_{now}_b{batch_size}_eb{embed_dim}_l{layer_num}_r{readout}_e{epoch + 1}.pth')
+            torch.save(model.state_dict(), model_path / f'model_{now}.pth')
 
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -382,21 +370,24 @@ def main(args):
     model = PredModel(config).to(device)
     scaler = torch.cuda.amp.GradScaler()
     optimizer = torch.optim.Adam(model.parameters(), lr=config['optim']['lr'], weight_decay=config['optim']['weight_decay'], amsgrad=True)
-    lr_scheduler = torch.optim.lr_scheduler.CyclicLR(
-        optimizer,
-        base_lr=config['optim']['base_lr'],
-        max_lr=config['optim']['max_lr'],
-        step_size_up=10,
-        mode="exp_range",
-        gamma=0.85,
-        cycle_momentum=False
-    )
-    # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    # lr_scheduler = torch.optim.lr_scheduler.CyclicLR(
     #     optimizer,
-    #     mode='min',
-    #     min_lr=config['optim']['base_lr'],
-    #     verbose=True
+    #     base_lr=config['optim']['base_lr'],
+    #     max_lr=config['optim']['max_lr'],
+    #     step_size_up=10,
+    #     mode="exp_range",
+    #     gamma=0.85,
+    #     cycle_momentum=False
     # )
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        # factor=0.5,
+        patience=1,
+        threshold=5e-2,
+        min_lr=config['optim']['base_lr'],
+        verbose=True
+    )
 
     graph_list_train, y_list_train,\
     graph_list_val, y_list_val = load_dataset(args.data_path, args.raw_data_path, args.dataset, config['tasks'])
@@ -409,7 +400,7 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"]=""
     parser = ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9', 'qm9_norm'], help='Name of Dataset')
+    parser.add_argument('--dataset', type=str, choices=['qm7', 'qm8', 'qm9', 'qm9_norm', 'esol', 'freesolv', 'lipophilicity'], help='Name of Dataset')
     # parser.add_argument('--task', type=str, help='Name of Task')
     parser.add_argument('--raw_data_path', type=str, default='raw_data', help='Raw data path')
     parser.add_argument('--data_path', type=str, default='dataset', help='Data path')

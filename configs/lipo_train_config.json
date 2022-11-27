@@ -1,0 +1,35 @@
+{    
+    "atom_feat_names": ["atom_type", "formal_charge", "degree", 
+                        "chiral_tag", "num_bonded_Hs", "is_aromatic", 
+                        "hybridization"],
+    "atom_float_names": ["mass"],
+    "bond_feat_names": ["bond_dir", "bond_type", "is_in_ring", "is_conjugated"],
+    "bond_float_names": ["bond_length"],
+    "bond_angle_float_names": ["bond_angle"],
+
+    "tasks": ["logD"],
+
+    "epochs": 100,
+
+    "model": {
+        "embed_dim": 32,
+        "hidden_dim": 256,
+        "dropout_rate": 0.2,
+        "layer_num": 8,
+        "readout": "mean",
+        "batch_size": 32
+    },
+    
+    "optim": {
+        "lr": 5e-3,
+        "weight_decay": 5e-4,
+        "base_lr": 5e-3,
+        "max_lr": 1e-2
+    },
+
+    "pe": {
+        "walk_length": 5,
+        "lambda": 0.5,
+        "alpha": 2
+    }
+}

@@ -4,5 +4,6 @@ model
 raw_data
 wandb
 runs
+notebooks
 __pycache__
 **/*.ipynb

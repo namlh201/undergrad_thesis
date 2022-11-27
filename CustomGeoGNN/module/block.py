@@ -6,7 +6,7 @@ from typing import Optional, Union
 import torch
 from torch import Tensor
 from torch.nn import Dropout, Module, ModuleList, GELU, ReLU, Sequential#, TransformerEncoder, TransformerEncoderLayer
-from torch_geometric.nn import LayerNorm, GraphNorm, Linear, global_mean_pool
+from torch_geometric.nn import LayerNorm, GraphNorm, Linear, global_mean_pool, MLP
 from torch_geometric.utils import softmax
 from torch_geometric.typing import PairTensor
 
@@ -23,7 +23,7 @@ class GeoGNNBlock(Module):
         self.gnn = GINConv(self.embed_dim)
         # self.gnn = GATv2Conv(self.embed_dim, self.embed_dim, heads=1, edge_dim=self.embed_dim)#, add_self_loops=False)
         # self.gnn = TransformerConv(self.embed_dim, self.embed_dim, edge_dim=self.embed_dim)
-        self.norm = LayerNorm(self.embed_dim, mode='node')
+        self.norm = LayerNorm(self.embed_dim, mode='graph')
         self.graph_norm = GraphNorm(self.embed_dim)
 
         if last_act:
@@ -95,7 +95,14 @@ class TransformerEncoderLayer(Module):
             Linear(self.dim_feedforward, self.embed_dim)
         )
 
-        self.layer_norm = LayerNorm(embed_dim)
+        # self.ff = MLP(in_channels=self.embed_dim,
+        #               hidden_channels=self.dim_feedforward,
+        #               out_channels=self.embed_dim,
+        #               num_layers=3,
+        #               act=self.act_fn(),
+        #               dropout=self.dropout_rate)
+
+        self.layer_norm = LayerNorm(embed_dim, mode='graph')
 
     def forward(self, x: Union[Tensor, PairTensor], index: Tensor) -> Tensor:
         H, C = self.heads, self.embed_dim
@@ -162,7 +169,7 @@ class TransformerBlock(Module):
     def forward(self, x: Tensor, pe: Tensor, edge_index: Tensor) -> Tensor:
         num_nodes = len(x)
 
-        x = x + pe
+        # x = x + pe
 
         x_i = torch.stack(list(map(lambda i: x[i], edge_index[0])))
         x_j = torch.stack(list(map(lambda j: x[j], edge_index[1])))
@@ -172,6 +179,9 @@ class TransformerBlock(Module):
 
         for i in range(self.num_layers):
             out = self.transformer_encoder[i](out, index)
+
+            out = out + x_i
+            x_i = out
 
         out = global_mean_pool(out, edge_index[0])
 
